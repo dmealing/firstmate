@@ -67,7 +67,7 @@ README.md            public overview and development notes
 .github/workflows/   shared CI and PR enforcement, committed
 .agents/skills/      shared skills, committed
 .claude/skills       symlink to .agents/skills for claude compatibility
-bin/                 helper scripts, committed, including fm-fleet-sync.sh for clean default-branch refreshes and gone-branch pruning; read each script's header before first use
+bin/                 helper scripts, committed, including fm-fleet-sync.sh for clean default-branch refreshes and gone-branch pruning, and fm-overlap-check.sh for cross-clone overlap warnings at dispatch; read each script's header before first use
 config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
@@ -357,6 +357,13 @@ Then classify readiness:
 - **Dispatchable:** no overlap with in-flight tasks. Dispatch immediately. There is no concurrency cap.
 - **Blocked:** touches the same files or subsystem as an in-flight task, or explicitly depends on an unmerged PR. Record it in `data/backlog.md` with `blocked-by: <id>` and tell the captain what work is waiting and why. Scout tasks are read-mostly and almost never block on anything.
 
+That readiness judgment covers firstmate's own tasks only, and by construction it cannot see anything else.
+The captain also works repos directly, in their own clone, outside firstmate entirely, so "no overlap with in-flight tasks" is not the same as "no overlap".
+`bin/fm-overlap-check.sh` closes that gap: given a project directory it finds other clones of the same origin on this machine and reports any that hold uncommitted changes, unpushed commits, or a recent commit.
+`bin/fm-spawn.sh` runs it automatically before every ship and scout dispatch, so the warning arrives in the tool output you already read.
+It is advisory by design - the supervisor decides, exactly like `fm-guard.sh` - but a warning means stop and confirm with the captain before dispatching, because a crewmate branching off a repo the captain is mid-change on produces conflicts nothing else will catch.
+Set `FM_OVERLAP_BLOCK=1` to make an overlap refuse the dispatch outright, `FM_CLONE_ROOTS` to point the scan somewhere other than the parent of the firstmate home, and `FM_OVERLAP_CHECK=0` to disable it.
+
 Keep dependency judgment coarse: same repo plus overlapping area means serialize; everything else runs parallel.
 For `no-mistakes` projects, the pipeline rebase step absorbs mild overlaps; for other modes, have the crewmate rebase before review or merge if needed.
 
@@ -382,6 +389,7 @@ For `kind=secondmate`, the same script launches in the registered or explicit fi
 For ship and scout tasks, the script creates the window (in your current tmux session, or a dedicated `firstmate` session when you are outside tmux), runs `treehouse get`, waits for the worktree subshell, installs the turn-end hook, records `state/<id>.meta`, and launches the agent with the brief.
 For `kind=secondmate`, the script creates the same kind of window but starts directly in the persistent home.
 Project worktrees start at detached HEAD on a clean default branch; ship briefs tell the crewmate to create its branch, while scout briefs keep the worktree scratch.
+For ship and scout tasks the script also runs `bin/fm-overlap-check.sh` on the resolved project before it creates the window, so an overlap warning arrives while the dispatch can still be called off (section 7 intake).
 After spawning, peek the pane to confirm the crewmate is processing the brief (and handle any trust dialog per section 4).
 Add the task to `data/backlog.md` under In flight.
 

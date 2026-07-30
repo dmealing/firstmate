@@ -303,6 +303,17 @@ else
 fi
 [ -f "$BRIEF" ] || { echo "error: no brief at $BRIEF" >&2; exit 1; }
 
+# Cross-clone overlap: firstmate's blocked-by logic only sees its own tasks, so it is
+# blind to work the captain is doing directly in their own clone of the same repo.
+# Advisory by default; FM_OVERLAP_BLOCK=1 makes it refuse the dispatch. Runs per pair in
+# a batch (each pair re-execs), unlike the watcher guard, because each pair may differ.
+if [ "$KIND" != secondmate ]; then
+  "$FM_ROOT/bin/fm-overlap-check.sh" "$PROJ_ABS" || {
+    echo "error: refusing to dispatch $ID into $PROJ_ABS while overlapping local work exists (FM_OVERLAP_BLOCK=1)" >&2
+    exit 1
+  }
+fi
+
 # Same session when firstmate already runs inside tmux; dedicated session otherwise.
 if [ -n "${TMUX:-}" ]; then
   SES=$(tmux display-message -p '#S')
