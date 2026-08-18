@@ -113,6 +113,43 @@ EOF
   return 1
 }
 
+# Local credential files a crewmate writes are untracked or gitignored, so neither a
+# branch reset nor treehouse's return removes them - they survive into the pooled
+# worktree and are handed to whatever task lands in that slot next. Scrub them.
+#
+# Deliberately narrow. Only untracked/ignored paths are touched, never tracked ones,
+# and vendor directories are skipped: they are large, and a fixture .npmrc inside a
+# dependency is not a live credential. The cost of missing a file is a leaked secret,
+# so the pattern list should grow when a new ecosystem's credential file shows up.
+scrub_local_credentials() {
+  local wt=$1 rel removed=0
+  [ -d "$wt" ] || return 0
+  git -C "$wt" rev-parse --git-dir >/dev/null 2>&1 || return 0
+
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    case "$rel" in
+      node_modules/*|*/node_modules/*|.git/*|*/.git/*) continue ;;
+      target/*|*/target/*|dist/*|*/dist/*|build/*|*/build/*) continue ;;
+      .venv/*|*/.venv/*|vendor/*|*/vendor/*) continue ;;
+    esac
+    case "${rel##*/}" in
+      .env|*.env|.npmrc|.pypirc|.netrc|.git-credentials|credentials|\
+      settings.xml|nuget.config|NuGet.Config|*.pem|*.key)
+        rm -f "$wt/$rel" 2>/dev/null || continue
+        removed=$((removed + 1))
+        echo "  scrubbed local credential: $rel"
+        ;;
+    esac
+  done <<EOF
+$( { git -C "$wt" ls-files --others --exclude-standard;
+     git -C "$wt" ls-files --others --ignored --exclude-standard; } 2>/dev/null | sort -u )
+EOF
+
+  [ "$removed" -gt 0 ] && echo "scrubbed $removed local credential file(s) before returning the worktree"
+  return 0
+}
+
 firstmate_home_has_treehouse_slot() {
   local home=$1
   worktree_registered_for_project "$FM_ROOT" "$home"
@@ -432,6 +469,7 @@ if [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
       git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
     fi
   fi
+  scrub_local_credentials "$WT"
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js"
   # Kills remaining processes in the worktree (including the agent), resets, returns
