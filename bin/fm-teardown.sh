@@ -431,12 +431,38 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
       exit 1
     fi
   else
-    # The fm-spawn hook file is ours, never work product; ignore it in the dirty check.
-    dirty=$(git -C "$WT" status --porcelain 2>/dev/null | grep -vE '^\?\? \.claude/' | head -1 || true)
+    # The fm-spawn hook files are ours, never work product, and teardown deletes them
+    # a few lines below - so they must not count as uncommitted work. Match them at ANY
+    # status, not just untracked: a project that tracks .claude/settings.local.json shows
+    # our edit as ' M', which the old untracked-only filter let through and refused on.
+    dirty=$(git -C "$WT" status --porcelain 2>/dev/null \
+      | grep -vE '^\?\? \.claude/' \
+      | grep -vE '^.{2} "?\.claude/settings\.local\.json"?$' \
+      | grep -vE '^.{2} "?\.opencode/plugins/fm-turn-end\.js"?$' \
+      | head -1 || true)
     # A worktree's work is "safely on a remote" once HEAD is reachable from ANY
     # remote-tracking branch (empty result here). A fork is a remote too, so
     # upstream-contribution PRs pushed to a fork satisfy this regardless of mode.
     unpushed=$(git -C "$WT" log --oneline HEAD --not --remotes -- 2>/dev/null | head -5 || true)
+    # A SQUASH merge replaces the branch's commits with one new commit on the default
+    # branch, so none of HEAD's commits stay reachable from a remote and the test above
+    # reports work that has in fact landed. Content is what matters: if HEAD's tree is
+    # byte-identical to a remote-tracking branch's tree, nothing can be lost by removing
+    # this worktree. Compare trees, not commits.
+    if [ -n "$unpushed" ]; then
+      head_tree=$(git -C "$WT" rev-parse "HEAD^{tree}" 2>/dev/null || true)
+      if [ -n "$head_tree" ]; then
+        for remote_ref in $(git -C "$WT" for-each-ref --format='%(refname)' refs/remotes/ 2>/dev/null); do
+          remote_tree=$(git -C "$WT" rev-parse "$remote_ref^{tree}" 2>/dev/null || true)
+          if [ -n "$remote_tree" ] && [ "$remote_tree" = "$head_tree" ]; then
+            echo "note: HEAD's commits are not on a remote, but its tree is identical to $remote_ref" >&2
+            echo "note: (squash merge) - no content can be lost, continuing." >&2
+            unpushed=""
+            break
+          fi
+        done
+      fi
+    fi
     if [ -n "$unpushed" ] && [ "$MODE" = local-only ]; then
       # local-only ships have no remote in the common case, so the "on a remote"
       # test above is expected to be non-empty. The work is safe once it is merged
