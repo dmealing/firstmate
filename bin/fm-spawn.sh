@@ -2193,6 +2193,15 @@ if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ];
   SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=1
 fi
 [ -f "$BRIEF" ] || { echo "error: task $ID has no brief at inaccessible data path $BRIEF" >&2; exit 1; }
+# Cross-clone overlap: firstmate's own overlap judgment only sees its own tasks, so it
+# is blind to work the captain is doing directly in their own clone of the same repo.
+# Advisory by default; FM_OVERLAP_BLOCK=1 makes it refuse the dispatch.
+if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
+  "$FM_ROOT/bin/fm-overlap-check.sh" "$PROJ_ABS" || {
+    echo "error: refusing to dispatch $ID into $PROJ_ABS while overlapping local work exists (FM_OVERLAP_BLOCK=1)" >&2
+    exit 1
+  }
+fi
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   if fm_brief_task_placeholders_present "$BRIEF"; then
     echo "error: $BRIEF still contains {TASK} or {FIRSTMATE_SPEC}; fill ## Captain's intent and ## Firstmate spec before spawn" >&2
