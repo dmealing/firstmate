@@ -1,0 +1,145 @@
+# Teardown Hook Files & Credentials Scrubbing - Test Validation Report
+
+## Change Summary
+This change addresses three issues:
+1. Firstmate's own hook files (.claude/settings.local.json, .opencode/plugins/fm-*.js) must not block teardown at any git status
+2. Add scrub_local_credentials() to remove untracked/gitignored credential files before worktree return
+3. Ensure fm-busy-state.js is removed on all return paths (child cleanup, tmux, main orca)
+
+## Test Execution Results
+
+### Test Suite Run: fm-teardown.test.sh
+- Total tests: 86
+- Passed: 86
+- Failed: 0
+- Pass rate: 100%
+
+### Key Tests for This Change
+
+#### 1. test_tracked_hook_file_changes_do_not_block_teardown
+**Scenario**: A project tracking .claude/settings.local.json and .opencode/plugins/fm-busy-state.js 
+should allow teardown even when these files are modified/deleted.
+
+**Setup**:
+- Created fixture with tracked .claude/settings.local.json and .opencode/plugins/fm-busy-state.js
+- Modified one file and deleted the other
+- Recorded this as having a merged PR for the work
+
+**Execution**:
+- Ran teardown on this fixture
+- Verified git status showed exactly:
+  - " M .claude/settings.local.json" (modified)
+  - " D .opencode/plugins/fm-busy-state.js" (deleted)
+
+**Expected Result**:
+- Teardown should succeed (return code 0)
+- No REFUSED error should be printed
+- Task metadata should be cleaned up
+
+**Actual Result**:
+✓ PASS - Teardown completed successfully
+✓ PASS - No REFUSED line in stderr
+✓ PASS - Task metadata cleaned up
+
+#### 2. test_ignored_credentials_are_scrubbed_before_worktree_return
+**Scenario**: Gitignored credential files (.env, etc.) should be removed before treehouse return,
+but ordinary ignored files and tracked credential-shaped files should be preserved.
+
+**Setup**:
+- Created fixture with .gitignore containing .env and *.log patterns
+- Created tracked settings.xml (credential-shaped but tracked)
+- Created gitignored .env file (credential-shaped, ignored)
+- Created gitignored debug.log file (ordinary ignored file, not credential-shaped)
+- Mocked treehouse return to log whether .env exists at return time
+
+**Execution**:
+- Ran teardown on this fixture
+- Mock treehouse logged presence/absence of .env when return was called
+
+**Expected Result**:
+- Teardown should succeed (return code 0)
+- .env should be ABSENT when treehouse return is called
+- .env should not exist after teardown
+- debug.log (ordinary ignored file) should still exist
+- settings.xml (tracked credential file) should still exist
+
+**Actual Result**:
+✓ PASS - Teardown succeeded
+✓ PASS - .env was absent at treehouse return time (not handed to next task)
+✓ PASS - .env file was removed from worktree
+✓ PASS - debug.log (ordinary ignored) was preserved
+✓ PASS - settings.xml (tracked credential-shaped) was preserved
+
+### Code Coverage Validation
+
+#### Hook File Filter Logic (validate_worktree_teardown_safety)
+- Pattern: `^(\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)|.. (\.claude/settings\.local\.json|\.opencode/plugins/fm-(turn-end|busy-state)\.js)$)`
+- Covers:
+  ✓ Untracked .claude/ files (any status)
+  ✓ Untracked .fm-{grok,kimi}-turnend files
+  ✓ Modified (..) .claude/settings.local.json
+  ✓ Modified (..) .opencode/plugins/fm-turn-end.js
+  ✓ Modified (..) .opencode/plugins/fm-busy-state.js
+  ✓ Deleted (..) status for any of the above
+
+#### scrub_local_credentials Function
+- Execution point: Called at top of teardown_treehouse_return()
+- File detection: Uses `git ls-files --others` (untracked + ignored in one pass)
+- Vendor directory skips:
+  ✓ node_modules, target, dist, build, .venv, vendor
+- Credential file patterns:
+  ✓ .env, *.env
+  ✓ .npmrc, .pypirc, .netrc
+  ✓ .git-credentials, credentials
+  ✓ settings.xml, nuget.config, NuGet.Config
+  ✓ *.pem, *.key
+- Protection:
+  ✓ Only removes untracked/ignored files (never tracked)
+  ✓ Skips vendor directories (large, not live credentials)
+
+#### Hook File Removal on All Return Paths
+Verified in 4 locations:
+✓ Line 2955: cleanup_firstmate_home_children (child worktree cleanup, before Herdr removal)
+✓ Line 2962: cleanup_firstmate_home_children (direct child worktree cleanup, parallel path)
+✓ Line 3258: orca worktree cleanup (via tmux pool return)
+✓ Line 3272: main worktree cleanup (standard path)
+
+All paths remove: .claude/settings.local.json, .opencode/plugins/fm-turn-end.js, .opencode/plugins/fm-busy-state.js
+
+## Regression Testing
+All existing 84 tests continue to pass, covering:
+- Squash-merged PR detection and teardown
+- Content fallback when no PR metadata
+- Dirty worktree refusal
+- Unpushed work detection
+- Secondmate and child worktree cleanup
+- Herdr lifecycle management
+- Index lock handling
+- Parked run cleanup
+- Leaked process reaping
+- And 70+ other scenarios
+
+## Edge Cases Validated
+
+1. **No directory to scrub**: scrub_local_credentials returns early (safety)
+2. **Not a git worktree**: scrub_local_credentials returns early (safety)
+3. **Empty worktree**: scrub_local_credentials completes without error
+4. **No matching credentials**: Returns 0, no error
+5. **Removal permission denied**: Continues to next file (|| continue)
+6. **Tracked + ignored name conflict**: Tracked file preserved (function only removes untracked/ignored)
+7. **Subdirectory credentials**: Correctly matched and removed (relative paths from worktree root)
+
+## Acceptance Criteria Check
+
+From user intent (all REQUIRED):
+
+✓ Hook files (.claude/settings.local.json, .opencode/plugins/fm-*.js) never block teardown at any status
+✓ scrub_local_credentials removes untracked/gitignored credential files before treehouse return
+✓ Only credential-shaped files removed from untracked/ignored; ordinary ignored files preserved
+✓ Tracked files never removed (even if credential-shaped name)
+✓ Vendor directories skipped (performance + safety)
+✓ fm-busy-state.js removed on all pool return paths (child, tmux, main orca)
+✓ Regression tests included and passing
+✓ wt_commit_file uses -f flag to bypass global excludes
+
+All requirements satisfied.
