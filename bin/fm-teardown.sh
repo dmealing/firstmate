@@ -69,6 +69,12 @@
 # teardown refuses rather than risk discarding unlanded work.
 # Uncommitted changes are never landed; dirty refusals distinguish untracked-only
 # leftovers from tracked edits and list at most ten non-exempt untracked paths.
+# Firstmate's own hook files (.claude/settings.local.json and the
+# .opencode/plugins/fm-*.js plugins) are not the task's work at any git status,
+# including tracked-and-modified or deleted, because cleanup removes them itself.
+# Every worktree returned to the treehouse pool is first scrubbed of untracked or
+# gitignored credential-shaped files (scrub_local_credentials), which the return
+# would otherwise hand to the next task leased into that slot.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -1857,6 +1863,7 @@ teardown_treehouse_return() {
   local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-}
   local out lock attempt=0 max_retries lock_desc
 
+  scrub_local_credentials "$dir"
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
   # be matched by signature even when the lock file is already gone mid-check.
   if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
@@ -1977,6 +1984,43 @@ teardown_note_dirty_return() {
   printf '%s\n' "$residue" | sed 's/^/  /' >&2
 }
 
+# Local credential files a crewmate writes are untracked or gitignored, so neither a
+# branch reset nor treehouse's return removes them - they survive into the pooled
+# worktree and are handed to whatever task lands in that slot next. Scrub them.
+#
+# Deliberately narrow. Only untracked/ignored paths are touched, never tracked ones,
+# and vendor directories are skipped: they are large, and a fixture .npmrc inside a
+# dependency is not a live credential. The cost of missing a file is a leaked secret,
+# so the pattern list should grow when a new ecosystem's credential file shows up.
+scrub_local_credentials() {
+  local wt=$1 rel removed=0
+  [ -d "$wt" ] || return 0
+  git -C "$wt" rev-parse --git-dir >/dev/null 2>&1 || return 0
+
+  # With no exclude option, --others lists untracked and ignored files alike.
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    case "$rel" in
+      node_modules/*|*/node_modules/*|.git/*|*/.git/*) continue ;;
+      target/*|*/target/*|dist/*|*/dist/*|build/*|*/build/*) continue ;;
+      .venv/*|*/.venv/*|vendor/*|*/vendor/*) continue ;;
+    esac
+    case "${rel##*/}" in
+      .env|*.env|.npmrc|.pypirc|.netrc|.git-credentials|credentials|\
+      settings.xml|nuget.config|NuGet.Config|*.pem|*.key)
+        rm -f "$wt/$rel" 2>/dev/null || continue
+        removed=$((removed + 1))
+        echo "  scrubbed local credential: $rel"
+        ;;
+    esac
+  done <<EOF
+$(git -C "$wt" ls-files --others 2>/dev/null)
+EOF
+
+  [ "$removed" -gt 0 ] && echo "scrubbed $removed local credential file(s) before returning the worktree"
+  return 0
+}
+
 validate_worktree_teardown_safety() {
   local dirty_raw dirty unpushed_raw unpushed DEFAULT unmerged_raw unmerged branch
   [ -d "$WT" ] || return 0
@@ -1993,7 +2037,10 @@ validate_worktree_teardown_safety() {
     echo "Restore the git index state, or get the captain's explicit OK to discard, then --force." >&2
     return 1
   fi
-  dirty=$(printf '%s\n' "$dirty_raw" | grep -vE '^\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)' || true)
+  # Firstmate's own hook files are never the task's work, at any status (see header).
+  dirty=$(printf '%s\n' "$dirty_raw" \
+    | grep -vE '^(\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)|.. (\.claude/settings\.local\.json|\.opencode/plugins/fm-(turn-end|busy-state)\.js)$)' \
+    || true)
 
   if ! unpushed_raw=$(git -C "$WT" log --oneline HEAD --not --remotes -- 2>/dev/null); then
     if worktree_safety_blocked_by_lock "commits not on a remote"; then
@@ -3340,6 +3387,7 @@ cleanup_firstmate_home_children() {
       if [ -n "$child_wt" ] && [ -d "$child_wt" ]; then
         validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
         rm -f "$child_wt/.claude/settings.local.json" "$child_wt/.opencode/plugins/fm-turn-end.js" \
+          "$child_wt/.opencode/plugins/fm-busy-state.js" \
           "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend"
       fi
       fm_backend_remove_worktree "$child_backend" "$child_orca_worktree_id" || return 1
@@ -3699,6 +3747,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   fi
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
+    "$WT/.opencode/plugins/fm-busy-state.js" \
     "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
   remove_harness_worktree_wiring "$WT"
   # Kills remaining processes in the worktree (including the agent), resets, returns
