@@ -1,0 +1,42 @@
+Live validation: docs(agents) 3f42a88 — AGENTS.md section 2 manifest -> .claude/rules/layout-and-state.md
+Base a09090d, target 3f42a88. All commands run in the gate worktree.
+
+1) Manifest preservation (deterministic, vs base commit)
+   base section-2 fenced tree block: 98 lines
+   rule fenced tree block:           98 lines
+   lines missing from rule: 0 ; extra lines in rule: 0 ; sequence identical: True
+2) Section integrity
+   AGENTS.md sections base: 16, target: 16, headings identical: True
+   diff hunks in AGENTS.md: one, @@ -62,102 +62,24 @@ ; base section 2 spans lines 51-163,
+   so the hunk lies entirely inside section 2. Changed files: AGENTS.md, .claude/rules/layout-and-state.md only.
+3) No identifier loss
+   backtick spans in base section 2: 17 ; missing from (target AGENTS.md + rule): 0
+   markdown links in base section 2: 0 (none existed to lose)
+4) Inline surface
+   new orientation map: exactly 14 abbreviated entries; bold pointer "Every entry above is abbreviated."
+   names .claude/rules/layout-and-state.md (link resolves; file exists) and repeats
+   "docs/configuration.md remains the owner". Rule header: "Where the two disagree, docs/configuration.md wins."
+5) Rule path scoping (picomatch-style glob semantics, explicit ** crosses slashes / * does not)
+   8 declared globs: config/** data/** state/** projects/** bin/** docs/configuration.md .env .tasks.toml
+   positives matched: config/crew-harness, config/a/b/x-mode.env, data/captain.md, data/abc123/brief.md,
+     state/abc123.status, state/pending-replies/rec.json, projects/foo/repo/file.py, bin/fm-spawn.sh,
+     bin/fm, docs/configuration.md, .env, .tasks.toml
+   negatives not matched: AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md, docs/tmux-backend.md,
+     skills/pub.md, .agents/skills/x.md, .claude/rules/layout-and-state.md, .github/workflows/ci.yml,
+     nested/.env, src/a.ts, state
+   mismatches: 0
+6) Repo's own consumers executed against the real files
+   ./bin/fm-ensure-agents-md.sh <temp-copy>: exit 0, "unchanged: AGENTS.md with CLAUDE.md @AGENTS.md pointer"
+   CI ".github/workflows/ci.yml" checks replayed locally: CLAUDE.md canonical pointer cmp OK, not-a-symlink OK,
+     .claude/skills -> ../.agents/skills OK, `git ls-files -- data state config projects .no-mistakes` empty OK
+7) Consumer feature evidence for auto-load (no LLM session launched)
+   installed Claude Code CLI 2.1.278 binary contains the .claude/rules loader: 10 hits for "claude/rules",
+   rule-file regex [\\/]\.claude[\\/]rules[\\/]([^\\/]+)$ matches files directly under .claude/rules/ —
+   exactly where layout-and-state.md sits; official docs confirm paths: frontmatter rules attach only when
+   Claude reads/edits matching files.
+   NOTE: this gate session's own harness did NOT inject the rule on a Read of docs/configuration.md; the
+   gate harness does not demonstrate Claude Code rules loading, so it is not live proof either way.
+
+Byte sizes: AGENTS.md 84,444 -> 66,840 (intent narrative said 66,833; base figure exact, 7-byte drift is in
+the narrative only — all content constraints verified above). Base section-2 tree block is 98 lines (intent
+narrative said 94).
