@@ -74,11 +74,9 @@ state/               runtime records, status/turn-end/busy signals, per-task inb
 projects/            cloned repos; gitignored; read-only except under hard rule 1
 ```
 
-🔗 **Every entry above is abbreviated.** The full manifest — each `config/` flag with its default
-and inheritance, and every `data/`, `state/` and `projects/` record — is in
-[.claude/rules/layout-and-state.md](.claude/rules/layout-and-state.md), which auto-loads on
-`config/**`, `data/**`, `state/**`, `projects/**`, `bin/**`, `docs/configuration.md`, `.env` and
-`.tasks.toml`. Read it before relying on any default; `docs/configuration.md` remains the owner.
+🔗 **Every entry above is abbreviated.**
+The full manifest - each `config/` flag with its default and inheritance, and every `data/`, `state/` and `projects/` record - is in [.claude/rules/layout-and-state.md](.claude/rules/layout-and-state.md), which auto-loads on `config/**`, `data/**`, `state/**`, `projects/**`, `bin/**`, `docs/configuration.md`, `.env` and `.tasks.toml`.
+Read it before relying on any default; `docs/configuration.md` remains the owner.
 
 A `state/<id>.status` line is a wake event, not current-state truth; `bin/fm-crew-state.sh` owns current-state reconciliation.
 Treat `data/captain.md` as the domain-local record of captain preferences, optional `data/captain-shared.md` as the main-authoritative shared captain-preference file for secondmate inheritance, and `data/learnings.md` as curated home-local knowledge, regardless of harness memory.

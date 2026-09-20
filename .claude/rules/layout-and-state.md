@@ -10,11 +10,10 @@ paths:
   - ".tasks.toml"
 ---
 
-## Layout and state — full annotated manifest
+## Layout and state - full annotated manifest
 
-`docs/configuration.md` is the single owner of the top-level operational-home layout and
-configuration schemas. This manifest is the at-a-glance form of the same thing: every tracked
-file, every `config/` flag with its default, and every `data/`, `state/` and `projects/` record.
+`docs/configuration.md` is the single owner of the top-level operational-home layout and configuration schemas.
+This manifest is the at-a-glance form of the same thing: every `config/` flag with its default and inheritance, and every `data/`, `state/` and `projects/` record.
 Where the two disagree, `docs/configuration.md` wins.
 
 ```
