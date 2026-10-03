@@ -27,8 +27,10 @@
 # error block (a warning Review summary or any siren finding line) is refused
 # with one error line per problem and a non-zero exit, so no pr= is recorded and
 # no poll is armed. HTML comments are ignored, so the hidden pipeline
-# attestation marker never trips it. A same-owner PR and any non-GitHub forge
-# request skip the guard. When the owner or the body cannot be read, the PR is refused.
+# attestation marker never trips it; a body carrying that marker is refused
+# when its visible no-mistakes attribution line is missing. A same-owner PR
+# and any non-GitHub forge request skip the guard. When the owner or the body
+# cannot be read, the PR is refused.
 # --body-reviewed records that firstmate read the live body and accepted it:
 # the guard is skipped, the override is logged on stderr, and
 # pr_body_reviewed=<url> is kept in the task metadata so a later run for the
@@ -179,7 +181,7 @@ pr_body_problem() {
 }
 
 pr_body_guard() {
-  local owner login problems=0
+  local owner login raw_body problems=0
   owner=${PROJECT_PATH%%/*}
   if ! command -v gh >/dev/null 2>&1 \
     || ! login=$(gh api user --jq .login 2>/dev/null) || [ -z "$login" ]; then
@@ -195,19 +197,32 @@ pr_body_guard() {
     echo "error: could not read the body of $URL" >&2
     return 1
   fi
+  raw_body=$PR_BODY
   PR_BODY=$(printf '%s\n' "$PR_BODY" | pr_body_strip_comments)
+  # A pipeline-attested body must keep its visible attribution line; a hand
+  # edit that drops it fails the forge's body-compliance check.
+  case "$raw_body" in
+    *no-mistakes-pipeline-attestation*)
+      printf '%s\n' "$PR_BODY" | grep -qF "$PR_BODY_ATTRIBUTION" || {
+        echo "error: PR body has the pipeline attestation but lacks the line: $PR_BODY_ATTRIBUTION" >&2
+        problems=1
+      }
+      ;;
+  esac
   pr_body_problem "an Intent section" -iE '^[[:space:]]{0,3}#{1,6}[[:space:]]+Intent[[:space:]#]*$' || problems=1
   pr_body_problem "a local path" -E '(^|[^[:alnum:]_.~/-])(~/|/home/|/Users/|/tmp/)' || problems=1
   pr_body_problem "the high-risk marker" -F '🚨 High' || problems=1
   pr_body_problem "an unresolved review summary" -F -e '⚠️ **Review**' -e '⚠ **Review**' || problems=1
   # Any other siren line is a review finding; the high-risk line is reported once, above.
-  PR_BODY=$(printf '%s\n' "$PR_BODY" | sed 's/🚨 High//g') pr_body_problem "an unresolved review finding" -F '🚨' || problems=1
+  PR_BODY=${PR_BODY//🚨 High/}
+  pr_body_problem "an unresolved review finding" -F '🚨' || problems=1
   [ "$problems" = 0 ] && return 0
   echo "error: refusing to record $URL; fix the body, or rerun with --body-reviewed after reading it" >&2
   return 1
 }
 
 PR_BODY=
+PR_BODY_ATTRIBUTION='Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)'
 if [ "$PROVIDER" = github ]; then
   pr_body_guard || exit 1
 fi

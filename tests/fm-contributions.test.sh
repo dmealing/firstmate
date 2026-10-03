@@ -118,10 +118,8 @@ forge_home() {
   printf '[]\n' > "$home/forge/inline.json"
   printf '[]\n' > "$home/forge/labels.json"
   printf '[]\n' > "$home/forge/events.json"
-  cat > "$home/fakebin/gh" <<'SH'
-#!/usr/bin/env bash
-[ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
-[ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
+  fm_gh_body_guard_prelude "$home/fakebin/gh"
+  cat >> "$home/fakebin/gh" <<'SH'
 set -eu
 case "$*" in
   'pr view '*headRefOid,reviewDecision*)
@@ -732,10 +730,8 @@ test_read_only_views_create_no_state() {
 wrap_forge() { # home: log gh calls and apply per-call faults from $FORGE/fault
   local home=$1
   mv "$home/fakebin/gh" "$home/fakebin/gh-fixture"
-  cat > "$home/fakebin/gh" <<'SH'
-#!/usr/bin/env bash
-[ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
-[ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
+  fm_gh_body_guard_prelude "$home/fakebin/gh"
+  cat >> "$home/fakebin/gh" <<'SH'
 set -eu
 printf '%s\n' "$*" >> "$FORGE/calls"
 fault=$(cat "$FORGE/fault" 2>/dev/null || true)

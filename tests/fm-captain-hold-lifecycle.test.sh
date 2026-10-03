@@ -108,10 +108,8 @@ request_reconciles() {  # <home> <source-id> <task-id>...
 
 configure_merged_github() {  # <home>
   local home=$1
-  cat > "$home/fakebin/gh" <<'SH'
-#!/usr/bin/env bash
-[ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
-[ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
+  fm_gh_body_guard_prelude "$home/fakebin/gh"
+  cat >> "$home/fakebin/gh" <<'SH'
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
   "pr view")
