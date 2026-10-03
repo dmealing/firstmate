@@ -138,6 +138,8 @@ SH
   chmod +x "$fake_root/bin/fm-guard.sh"
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
+[ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
+[ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
   "api graphql")
@@ -3602,6 +3604,122 @@ SH
   pass "device re-record publication waits without rewriting its registration"
 }
 
+# A body-guard case answers the owner lookup with FM_TEST_GH_LOGIN and the body
+# read with the contents of FM_TEST_GH_BODY_FILE, logging every gh call.
+make_body_case() {
+  local dir
+  dir=$(make_case "$1")
+  cat > "$dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
+case "${1:-} ${2:-}" in
+  "api user")
+    [ -n "${FM_TEST_GH_LOGIN:-}" ] || exit 1
+    printf '%s\n' "$FM_TEST_GH_LOGIN"
+    ;;
+  "api repos/"*) [ "${3:-} ${4:-}" != "--jq .body" ] || cat "$FM_TEST_GH_BODY_FILE" ;;
+esac
+exit 0
+SH
+  chmod +x "$dir/fakebin/gh"
+  write_task_meta "$dir"
+  printf '%s\n' "$dir"
+}
+
+run_body_check() {  # <dir> <login> <body> [fm-pr-check args...]
+  local dir=$1 login=$2
+  printf '%s\n' "$3" > "$dir/body.md"
+  shift 3
+  FM_TEST_GH_LOGIN="$login" FM_TEST_GH_BODY_FILE="$dir/body.md" \
+    run_check_entry "$dir" "$@" > "$dir/out" 2> "$dir/err"
+}
+
+assert_body_refused() {  # <dir> <expected stderr fragment> <label>
+  local dir=$1
+  [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "$3: a refused body armed a poll"
+  ! grep -q '^pr=' "$dir/home/state/task-a.meta" || fail "$3: a refused body recorded pr="
+  grep -qF -- "$2" "$dir/err" || fail "$3: stderr did not name the problem: $(cat "$dir/err")"
+  grep -qF 'refusing to record' "$dir/err" || fail "$3: stderr did not state the refusal"
+}
+
+assert_body_recorded() {  # <dir> <url> <label>
+  grep -qxF "pr=$2" "$1/home/state/task-a.meta" || fail "$3: pr= was not recorded: $(cat "$1/err")"
+  [ -f "$1/home/state/task-a.check.sh" ] || fail "$3: the poll was not armed"
+}
+
+test_foreign_pr_body_guard() {
+  local url=https://github.com/o/r/pull/9 dir name body fragment
+  while IFS='|' read -r name fragment body; do
+    dir=$(make_body_case "body-$name")
+    run_body_check "$dir" me "$(printf '%b' "$body")" task-a "$url" \
+      && fail "body-$name: a foreign PR with a bad body was accepted"
+    assert_body_refused "$dir" "$fragment" "body-$name"
+  done <<'CASES'
+intent|has an Intent section (line 3)|Summary\n\n## Intent\nold text
+crlf|has an Intent section (line 1)|## Intent\r\nold text\r
+home|has a local path (line 1)|Evidence in /home/someone/run.log
+users|has a local path (line 2)|ok\nsee /Users/someone/x
+tmp|has a local path (line 1)|wrote /tmp/out.txt
+tilde|has a local path (line 1)|config at ~/.config/tool
+high|has the high-risk marker (line 1)|🚨 High: needs maintainer decision
+review|has an unresolved review summary (line 2)|ok\n<details><summary>⚠️ **Review** - 1 error</summary>
+finding|has an unresolved review finding (line 2)|ok\n- 🚨 bin/x.sh:3 unchecked error
+CASES
+
+  dir=$(make_body_case body-several)
+  run_body_check "$dir" me "$(printf '## Intent\n/tmp/x\n🚨 High\n')" task-a "$url" \
+    && fail "body-several: a bad body was accepted"
+  [ "$(grep -c '^error: PR body has' "$dir/err")" = 3 ] \
+    || fail "body-several: expected one line per problem: $(cat "$dir/err")"
+  ! grep -q 'review finding' "$dir/err" || fail "body-several: the high-risk line was also reported as a finding"
+
+  dir=$(make_body_case body-clean)
+  body=$(printf 'Fix the thing.\n\nSee https://example.com/home/page and src/tmp/x.\n<!-- no-mistakes-pipeline-attestation\n🚨 High /tmp/run ## Intent\n-->\nDone <!-- /home/x --> here.\n')
+  run_body_check "$dir" me "$body" task-a "$url" || fail "body-clean: a clean body was refused: $(cat "$dir/err")"
+  assert_body_recorded "$dir" "$url" body-clean
+  grep -qF "api repos/o/r/pulls/9 --jq .body" "$dir/gh.log" || fail "body-clean: the live body was not read with gh api"
+  pass "a foreign-owner PR body is refused per problem, and HTML comments are ignored"
+}
+
+test_same_owner_pr_skips_body_guard() {
+  local url=https://github.com/o/r/pull/9 dir
+  dir=$(make_body_case body-same-owner)
+  run_body_check "$dir" O '## Intent' task-a "$url" \
+    || fail "body-same-owner: a same-owner PR was refused: $(cat "$dir/err")"
+  assert_body_recorded "$dir" "$url" body-same-owner
+  ! grep -qF -- '--jq .body' "$dir/gh.log" || fail "body-same-owner: the body was read for a same-owner PR"
+  pass "a same-owner PR is recorded without a body read"
+}
+
+test_body_guard_refuses_unknown_owner() {
+  local url=https://github.com/o/r/pull/9 dir
+  dir=$(make_body_case body-no-login)
+  run_body_check "$dir" '' 'fine' task-a "$url" && fail "body-no-login: an unreadable gh user was accepted"
+  grep -qF 'could not read the authenticated GitHub user' "$dir/err" \
+    || fail "body-no-login: the missing user was not named: $(cat "$dir/err")"
+  ! grep -q '^pr=' "$dir/home/state/task-a.meta" || fail "body-no-login: pr= was recorded"
+  pass "the body guard refuses when the authenticated user cannot be read"
+}
+
+test_body_reviewed_override() {
+  local url=https://github.com/o/r/pull/9 dir
+  dir=$(make_body_case body-reviewed)
+  run_body_check "$dir" me '## Intent' --body-reviewed task-a "$url" \
+    || fail "body-reviewed: the override was refused: $(cat "$dir/err")"
+  assert_body_recorded "$dir" "$url" body-reviewed
+  grep -qF 'body-reviewed: guard skipped' "$dir/err" || fail "body-reviewed: the override was not logged"
+  grep -qxF "pr_body_reviewed=$url" "$dir/home/state/task-a.meta" || fail "body-reviewed: the override was not recorded"
+  run_body_check "$dir" me '## Intent' task-a "$url" \
+    || fail "body-reviewed: a recorded override was not honored on re-run: $(cat "$dir/err")"
+  [ "$(grep -c '^pr_body_reviewed=' "$dir/home/state/task-a.meta")" = 1 ] \
+    || fail "body-reviewed: the override line was duplicated"
+  run_body_check "$dir" me '## Intent' task-a https://github.com/o/r/pull/10 \
+    && fail "body-reviewed: an override for one PR covered another"
+  grep -qxF "pr=$url" "$dir/home/state/task-a.meta" || fail "body-reviewed: a refused PR replaced the recorded one"
+  grep -qF 'has an Intent section' "$dir/err" || fail "body-reviewed: the other PR's problem was not named"
+  pass "--body-reviewed records a logged override honored only for the same PR"
+}
+
 test_parser_matrix
 test_gitlab_merge_watch
 test_forgejo_merge_watch
@@ -3610,6 +3728,10 @@ test_gerrit_merge_watch
 test_gerrit_arming_records_no_patch_set_revision
 test_gerrit_ready_gate_reads_the_published_tree
 test_gerrit_nm_ready_gate_requires_recovered_custody
+test_foreign_pr_body_guard
+test_same_owner_pr_skips_body_guard
+test_body_guard_refuses_unknown_owner
+test_body_reviewed_override
 test_merged_poll_retires_once
 test_merged_poll_reregistration_after_notification_is_absorbed
 test_merged_poll_retries_a_failed_upward_report
