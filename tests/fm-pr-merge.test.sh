@@ -178,10 +178,8 @@ case "${1:-} ${2:-}" in
 esac
 exit 0
 SH
-  cat > "$case_dir/fakebin/gh" <<'SH'
-#!/usr/bin/env bash
-[ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
-[ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
+  fm_gh_body_guard_prelude "$case_dir/fakebin/gh"
+  cat >> "$case_dir/fakebin/gh" <<'SH'
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
   "pr view")

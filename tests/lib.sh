@@ -471,7 +471,9 @@ fm_live_gate() {
 #
 # fm_fakebin <dir> creates <dir>/fakebin and echoes it; prepend it to PATH to
 # shadow real tools with stubs. fm_fake_exit0 drops trivial exit-0 stubs for the
-# named tools into a fakebin dir. fm_fake_crash_injector drops the shim a fake
+# named tools into a fakebin dir. fm_gh_body_guard_prelude writes the fake-gh
+# prelude that keeps bin/fm-pr-check.sh's PR body guard inert in a fixture not
+# testing it. fm_fake_crash_injector drops the shim a fake
 # uses to crash the process under test deterministically. fm_fake_version_tool
 # drops a stub for a tool whose installed version bootstrap gates, so a fixture
 # cannot be reported as an unparseable build simply for answering `--version`
@@ -493,6 +495,21 @@ exit 0
 SH
     chmod +x "$fakebin/$tool"
   done
+}
+
+# fm_gh_body_guard_prelude <file> writes a fake-gh prelude into <file>: the
+# shebang plus the two answers bin/fm-pr-check.sh's foreign-owner PR body guard
+# needs, so the guard stays inert in a fixture that is not testing it. The
+# authenticated-user lookup answers as "fixture-user", a foreign owner for every
+# fixture URL, and the live body read answers empty, which the guard treats as a
+# clean body. A fixture writes this prelude first, then appends its own dispatch
+# with `cat >> <file>`, keeping its heredoc quoting intact.
+fm_gh_body_guard_prelude() {
+  cat > "${1:?fm_gh_body_guard_prelude: <file> required}" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
+[ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
+SH
 }
 
 # fm_fake_crash_injector <fakebin>

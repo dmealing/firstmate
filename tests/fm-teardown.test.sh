@@ -116,10 +116,8 @@ case "${1:-} ${2:-}" in
 esac
 exit 0
 SH
-  cat > "$fakebin/gh" <<'SH'
-#!/usr/bin/env bash
-[ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
-[ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
+  fm_gh_body_guard_prelude "$fakebin/gh"
+  cat >> "$fakebin/gh" <<'SH'
 case "${1:-} ${2:-}" in
   "pr view") echo "error: pull request not found" >&2 ; exit 1 ;;
 esac
@@ -279,10 +277,8 @@ case "${1:-} ${2:-}" in
 esac
 exit 0
 SH
-  cat > "$case_dir/fakebin/gh" <<SH
-#!/usr/bin/env bash
-[ "\${1:-} \${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
-[ "\${1:-} \${3:-} \${4:-}" != "api --jq .body" ] || exit 0
+  fm_gh_body_guard_prelude "$case_dir/fakebin/gh"
+  cat >> "$case_dir/fakebin/gh" <<SH
 case "\${1:-} \${2:-}" in
   "pr view")
     case " \$* " in
@@ -425,10 +421,8 @@ add_gh_axi_error() {
 echo "error: gh-axi unavailable" >&2
 exit 1
 SH
-  cat > "$case_dir/fakebin/gh" <<'SH'
-#!/usr/bin/env bash
-[ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
-[ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
+  fm_gh_body_guard_prelude "$case_dir/fakebin/gh"
+  cat >> "$case_dir/fakebin/gh" <<'SH'
 echo "error: gh unavailable" >&2
 exit 1
 SH

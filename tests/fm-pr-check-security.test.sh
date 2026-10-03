@@ -136,10 +136,8 @@ make_case() {
 printf 'guard\n' >> "$FM_TEST_GUARD_LOG"
 SH
   chmod +x "$fake_root/bin/fm-guard.sh"
-  cat > "$fakebin/gh" <<'SH'
-#!/usr/bin/env bash
-[ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
-[ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
+  fm_gh_body_guard_prelude "$fakebin/gh"
+  cat >> "$fakebin/gh" <<'SH'
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
   "api graphql")
@@ -3674,10 +3672,19 @@ CASES
   ! grep -q 'review finding' "$dir/err" || fail "body-several: the high-risk line was also reported as a finding"
 
   dir=$(make_body_case body-clean)
-  body=$(printf 'Fix the thing.\n\nSee https://example.com/home/page and src/tmp/x.\n<!-- no-mistakes-pipeline-attestation\n🚨 High /tmp/run ## Intent\n-->\nDone <!-- /home/x --> here.\n')
+  body=$(printf 'Fix the thing.\nUpdates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)\nSee https://example.com/home/page and src/tmp/x.\n<!-- no-mistakes-pipeline-attestation\n🚨 High /tmp/run ## Intent\n-->\nDone <!-- /home/x --> here.\n')
   run_body_check "$dir" me "$body" task-a "$url" || fail "body-clean: a clean body was refused: $(cat "$dir/err")"
   assert_body_recorded "$dir" "$url" body-clean
   grep -qF "api repos/o/r/pulls/9 --jq .body" "$dir/gh.log" || fail "body-clean: the live body was not read with gh api"
+  dir=$(make_body_case body-attested)
+  body=$(printf 'Fix.\n\nUpdates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)\n<!-- no-mistakes-pipeline-attestation abc -->\n')
+  run_body_check "$dir" me "$body" task-a "$url" || fail "body-attested: an attested body with its line was refused: $(cat "$dir/err")"
+  assert_body_recorded "$dir" "$url" body-attested
+
+  dir=$(make_body_case body-attested-edited)
+  run_body_check "$dir" me "$(printf 'Fix.\n<!-- no-mistakes-pipeline-attestation abc -->\n')" task-a "$url" \
+    && fail "body-attested-edited: an attested body without its attribution line was accepted"
+  assert_body_refused "$dir" 'lacks the line: Updates from [git push no-mistakes]' body-attested-edited
   pass "a foreign-owner PR body is refused per problem, and HTML comments are ignored"
 }
 
