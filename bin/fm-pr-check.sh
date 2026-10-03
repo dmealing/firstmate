@@ -167,13 +167,19 @@ pr_body_strip_comments() {
   }'
 }
 
-# Prints the comma-separated numbers of lines matching grep options "$@".
-pr_body_lines() {
-  printf '%s\n' "$PR_BODY" | LC_ALL=C grep -n "$@" | cut -d: -f1 | paste -sd, - || true
+# Reports "$1" with the numbers of body lines matching grep options "$2"...;
+# returns 1 when any line matches.
+pr_body_problem() {
+  local what=$1 lines
+  shift
+  lines=$(printf '%s\n' "$PR_BODY" | LC_ALL=C grep -n "$@" | cut -d: -f1 | paste -sd, - || true)
+  [ -z "$lines" ] && return 0
+  echo "error: PR body has $what (line $lines)" >&2
+  return 1
 }
 
 pr_body_guard() {
-  local owner login problems=0 lines siren
+  local owner login problems=0
   owner=${PROJECT_PATH%%/*}
   if ! command -v gh >/dev/null 2>&1 \
     || ! login=$(gh api user --jq .login 2>/dev/null) || [ -z "$login" ]; then
@@ -190,16 +196,12 @@ pr_body_guard() {
     return 1
   fi
   PR_BODY=$(printf '%s\n' "$PR_BODY" | pr_body_strip_comments)
-  lines=$(pr_body_lines -iE '^[[:space:]]{0,3}#{1,6}[[:space:]]+Intent[[:space:]#]*$')
-  [ -z "$lines" ] || { echo "error: PR body has an Intent section (line $lines)" >&2; problems=1; }
-  lines=$(pr_body_lines -E '(^|[^[:alnum:]_.~/-])(~/|/home/|/Users/|/tmp/)')
-  [ -z "$lines" ] || { echo "error: PR body has a local path (line $lines)" >&2; problems=1; }
-  lines=$(pr_body_lines -F '🚨 High')
-  [ -z "$lines" ] || { echo "error: PR body has the high-risk marker (line $lines)" >&2; problems=1; }
-  lines=$(pr_body_lines -F -e '⚠️ **Review**' -e '⚠ **Review**')
-  [ -z "$lines" ] || { echo "error: PR body has an unresolved review summary (line $lines)" >&2; problems=1; }
-  siren=$(printf '%s\n' "$PR_BODY" | LC_ALL=C grep -nF '🚨' | LC_ALL=C grep -vF '🚨 High' | cut -d: -f1 | paste -sd, - || true)
-  [ -z "$siren" ] || { echo "error: PR body has an unresolved review finding (line $siren)" >&2; problems=1; }
+  pr_body_problem "an Intent section" -iE '^[[:space:]]{0,3}#{1,6}[[:space:]]+Intent[[:space:]#]*$' || problems=1
+  pr_body_problem "a local path" -E '(^|[^[:alnum:]_.~/-])(~/|/home/|/Users/|/tmp/)' || problems=1
+  pr_body_problem "the high-risk marker" -F '🚨 High' || problems=1
+  pr_body_problem "an unresolved review summary" -F -e '⚠️ **Review**' -e '⚠ **Review**' || problems=1
+  # Any other siren line is a review finding; the high-risk line is reported once, above.
+  PR_BODY=$(printf '%s\n' "$PR_BODY" | sed 's/🚨 High//g') pr_body_problem "an unresolved review finding" -F '🚨' || problems=1
   [ "$problems" = 0 ] && return 0
   echo "error: refusing to record $URL; fix the body, or rerun with --body-reviewed after reading it" >&2
   return 1
