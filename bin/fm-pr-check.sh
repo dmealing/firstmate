@@ -19,7 +19,21 @@
 # skips this refusal, because its own merge-time draft refusal is authoritative.
 # The recorded pr= also frees the task's place in a declared project capacity
 # (bin/fm-project-capacity-lib.sh).
-# Usage: fm-pr-check.sh <task-id> <pr-url>
+#
+# A GitHub PR into a repository the authenticated gh user does not own is held
+# to a body guard before anything is recorded: the live body is read with plain
+# gh api, and a body carrying a "## Intent" section, a local path (~/, /home/,
+# /Users/, /tmp/), the no-mistakes high-risk marker, or an unresolved review
+# error block (a warning Review summary or any siren finding line) is refused
+# with one error line per problem and a non-zero exit, so no pr= is recorded and
+# no poll is armed. HTML comments are ignored, so the hidden pipeline
+# attestation marker never trips it. A same-owner PR and any non-GitHub forge
+# request skip the guard. When the owner or the body cannot be read, the PR is refused.
+# --body-reviewed records that firstmate read the live body and accepted it:
+# the guard is skipped, the override is logged on stderr, and
+# pr_body_reviewed=<url> is kept in the task metadata so a later run for the
+# same URL (such as bin/fm-pr-merge.sh) honors it.
+# Usage: fm-pr-check.sh [--body-reviewed] <task-id> <pr-url>
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,6 +50,11 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 
+BODY_REVIEWED=0
+if [ "${1:-}" = --body-reviewed ]; then
+  BODY_REVIEWED=1
+  shift
+fi
 if [ "$#" -ne 2 ]; then
   echo "error: invalid PR check request" >&2
   exit 2
@@ -130,6 +149,67 @@ if [ "$PROVIDER" = github ] && [ "${FM_PR_CHECK_MERGE:-}" != 1 ] && command -v g
   fi
 fi
 
+# Prints, without HTML comments, the body on stdin; line numbers are kept.
+pr_body_strip_comments() {
+  awk '{
+    out = ""; line = $0
+    while (1) {
+      if (in_comment) {
+        i = index(line, "-->")
+        if (i == 0) { line = ""; break }
+        line = substr(line, i + 3); in_comment = 0
+      }
+      i = index(line, "<!--")
+      if (i == 0) { out = out line; break }
+      out = out substr(line, 1, i - 1); line = substr(line, i + 4); in_comment = 1
+    }
+    print out
+  }'
+}
+
+# Prints the comma-separated numbers of lines matching grep options "$@".
+pr_body_lines() {
+  printf '%s\n' "$PR_BODY" | LC_ALL=C grep -n "$@" | cut -d: -f1 | paste -sd, - || true
+}
+
+pr_body_guard() {
+  local owner login problems=0 lines siren
+  owner=${PROJECT_PATH%%/*}
+  if ! command -v gh >/dev/null 2>&1 \
+    || ! login=$(gh api user --jq .login 2>/dev/null) || [ -z "$login" ]; then
+    echo "error: could not read the authenticated GitHub user to check the body of $URL" >&2
+    return 1
+  fi
+  [ "$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$login" | tr '[:upper:]' '[:lower:]')" ] || return 0
+  if [ "$BODY_REVIEWED" = 1 ] || grep -qxF "pr_body_reviewed=$URL" "$META"; then
+    printf 'body-reviewed: guard skipped for %s into %s; firstmate accepted the body after reading it\n' "$URL" "$owner" >&2
+    return 0
+  fi
+  if ! PR_BODY=$(gh api "repos/$PROJECT_PATH/pulls/$NUMBER" --jq .body 2>/dev/null); then
+    echo "error: could not read the body of $URL" >&2
+    return 1
+  fi
+  PR_BODY=$(printf '%s\n' "$PR_BODY" | pr_body_strip_comments)
+  lines=$(pr_body_lines -iE '^[[:space:]]{0,3}#{1,6}[[:space:]]+Intent[[:space:]#]*$')
+  [ -z "$lines" ] || { echo "error: PR body has an Intent section (line $lines)" >&2; problems=1; }
+  lines=$(pr_body_lines -E '(^|[^[:alnum:]_.~/-])(~/|/home/|/Users/|/tmp/)')
+  [ -z "$lines" ] || { echo "error: PR body has a local path (line $lines)" >&2; problems=1; }
+  lines=$(pr_body_lines -F '🚨 High')
+  [ -z "$lines" ] || { echo "error: PR body has the high-risk marker (line $lines)" >&2; problems=1; }
+  lines=$(pr_body_lines -F -e '⚠️ **Review**' -e '⚠ **Review**')
+  [ -z "$lines" ] || { echo "error: PR body has an unresolved review summary (line $lines)" >&2; problems=1; }
+  siren=$(printf '%s\n' "$PR_BODY" | LC_ALL=C grep -nF '🚨' | LC_ALL=C grep -vF '🚨 High' | cut -d: -f1 | paste -sd, - || true)
+  [ -z "$siren" ] || { echo "error: PR body has an unresolved review finding (line $siren)" >&2; problems=1; }
+  [ "$problems" = 0 ] && return 0
+  echo "error: refusing to record $URL; fix the body, or rerun with --body-reviewed after reading it" >&2
+  return 1
+}
+
+PR_BODY=
+if [ "$PROVIDER" = github ]; then
+  pr_body_guard || exit 1
+fi
+
 "$FM_ROOT/bin/fm-guard.sh" || true
 
 # pr_head is recorded only when the forge's CLI can supply it. gh exposes the
@@ -206,9 +286,15 @@ META_TMP=$(mktemp "$STATE/.fm-pr-meta.XXXXXX") || exit 1
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in
     pr=*|pr_head=*) ;;
+    pr_body_reviewed=*)
+      [ "$line" != "pr_body_reviewed=$URL" ] || BODY_REVIEWED=1
+      ;;
     *) printf '%s\n' "$line" >> "$META_TMP" || exit 1 ;;
   esac
 done < "$META"
+# The override is written before pr= so the strict post-pr metadata grammar
+# stays unchanged.
+[ "$BODY_REVIEWED" = 0 ] || printf 'pr_body_reviewed=%s\n' "$URL" >> "$META_TMP" || exit 1
 printf 'pr=%s\n' "$URL" >> "$META_TMP" || exit 1
 [ -z "$PR_HEAD" ] || printf 'pr_head=%s\n' "$PR_HEAD" >> "$META_TMP" || exit 1
 chmod 0600 "$META_TMP" || exit 1

@@ -118,6 +118,8 @@ exit 0
 SH
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
+[ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
+[ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
 case "${1:-} ${2:-}" in
   "pr view") echo "error: pull request not found" >&2 ; exit 1 ;;
 esac
@@ -279,6 +281,8 @@ exit 0
 SH
   cat > "$case_dir/fakebin/gh" <<SH
 #!/usr/bin/env bash
+[ "\${1:-} \${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
+[ "\${1:-} \${3:-} \${4:-}" != "api --jq .body" ] || exit 0
 case "\${1:-} \${2:-}" in
   "pr view")
     case " \$* " in
@@ -423,6 +427,8 @@ exit 1
 SH
   cat > "$case_dir/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
+[ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
+[ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
 echo "error: gh unavailable" >&2
 exit 1
 SH

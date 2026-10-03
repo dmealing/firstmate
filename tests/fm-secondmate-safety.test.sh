@@ -75,10 +75,12 @@ test_fm_home_parameterization() {
 
   # A pushed ship worktree, and a gh that supplies no forge head, so the PR
   # check stays offline and its named-head gate reads the worktree's HEAD.
+  # Its same-owner login keeps the PR body guard off the network.
   fm_git_init_commit "$home_one/wt"
   git -C "$home_one/wt" update-ref refs/remotes/origin/main "$(git -C "$home_one/wt" rev-parse HEAD)"
   mkdir -p "$home_one/fakebin"
-  printf '#!/usr/bin/env bash\nexit 1\n' > "$home_one/fakebin/gh"
+  # shellcheck disable=SC2016 # the single-quoted script expands in the fake gh
+  printf '%s\n' '#!/usr/bin/env bash' 'if [ "$1 $2" = "api user" ]; then printf "%s\n" example; exit 0; fi' 'exit 1' > "$home_one/fakebin/gh"
   chmod +x "$home_one/fakebin/gh"
   printf 'project=x\nworktree=%s\n' "$home_one/wt" > "$home_one/state/task-a.meta"
   PATH="$home_one/fakebin:$PATH" FM_HOME="$home_one" FM_GUARD_GRACE=999999 \
