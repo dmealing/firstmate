@@ -1528,7 +1528,7 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false},\"remoteControlAtStartup\":false,\"permissions\":{\"defaultMode\":\"bypassPermissions\"}}' --name 'worker · $id'" \
     "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
@@ -1627,6 +1627,27 @@ assert_attribution_policy_absent() {  # <launch-command> <what>
     || fail "$what launch settings JSON still disables Claude attribution: $settings"
 }
 
+# Only sessions the captain may talk to stay in the Claude app's Remote Control
+# list, whatever the captain's user setting says: ship and scout launches turn
+# it off (and pin the matching defaultMode so Claude's auto-default nudge cannot
+# park the pane), while a secondmate turns it on. Every kind carries a --name
+# naming its role.
+# Neither value contains a single quote, so a sed extraction is exact and,
+# unlike eval, never runs the launch's embedded command substitution.
+assert_claude_session_identity() {  # <launch> <what> <expected-name> <worker-default-mode|"">
+  local launch=$1 what=$2 name=$3 mode=$4 settings got
+  got=$(printf '%s' "$launch" | sed -n "s/.* --name '\([^']*\)'.*/\1/p")
+  [ "$got" = "$name" ] || fail "$what launch --name is '$got', expected '$name'"
+  settings=$(claude_settings_json_arg "$launch")
+  if [ -n "$mode" ]; then
+    printf '%s' "$settings" | jq -e --arg mode "$mode" '.remoteControlAtStartup == false and .permissions.defaultMode == $mode' >/dev/null \
+      || fail "$what launch settings JSON does not turn Remote Control off with defaultMode $mode: $settings"
+  else
+    printf '%s' "$settings" | jq -e '.remoteControlAtStartup == true and (has("permissions") | not)' >/dev/null \
+      || fail "$what launch settings JSON does not turn Remote Control on, or overrides the permission settings: $settings"
+  fi
+}
+
 test_claude_task_launch_carries_control_channel_authority() {
   local rec id out status launch
   id=profile-claude-control-channel-z21
@@ -1700,6 +1721,7 @@ test_claude_crewmate_launch_carries_the_attribution_policy() {
   launch=$(cat "$LAUNCH_LOG")
   assert_attribution_policy "$launch" "claude crewmate"
   [ -d "$HOME_DIR/state/$id.git-hooks" ] || fail "default config did not install the AI trailer hooks"
+  assert_claude_session_identity "$launch" "claude crewmate" "worker · $id" bypassPermissions
   pass "a claude crewmate launch carries the attribution-off policy in its own settings"
 }
 
@@ -1766,6 +1788,7 @@ test_claude_secondmate_launch_carries_the_attribution_policy() {
   expect_code 0 "$status" "secondmate claude spawn should succeed"$'\n'"$out"
   launch=$(cat "$LAUNCH_LOG")
   assert_attribution_policy "$launch" "claude secondmate"
+  assert_claude_session_identity "$launch" "claude secondmate" "2nd mate · $id" ""
   pass "a claude secondmate launch carries the attribution-off policy too"
 }
 
@@ -2138,12 +2161,13 @@ claude_worker_add_dirs() {  # <home> <id>
 }
 
 claude_expected_launch() {  # <launch> <home> <id> <permission-flag>
-  local doorbell quoted
+  local doorbell quoted mode=bypassPermissions
+  [ "$4" = "--permission-mode auto" ] && mode=auto
   doorbell=$(claude_launch_brief_arg "$1")
   [ "$(printf '%s' "$doorbell" | "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
     || doorbell="not a launch-brief doorbell"
   quoted="'$(printf '%s' "$doorbell" | sed "s/'/'\\\\''/g")'"
-  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$2" "$3")$(fm_test_launch_git_prefix "$1")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$2" "$3")$(fm_test_launch_git_prefix "$1")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false},\"remoteControlAtStartup\":false,\"permissions\":{\"defaultMode\":\"$mode\"}}' --name 'worker · $3' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
 }
 
 test_claude_permission_mode_bypass_matches_absent_launch() {
@@ -2194,6 +2218,7 @@ test_claude_permission_mode_auto_reaches_scout_launch() {
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "claude --permission-mode auto " "scout launch did not carry --permission-mode auto"
   assert_not_contains "$launch" "--dangerously-skip-permissions" "scout launch must not request bypass mode"
+  assert_claude_session_identity "$launch" "claude scout" "scout · $id" auto
   pass "config/claude-permission-mode=auto reaches scout launches too"
 }
 

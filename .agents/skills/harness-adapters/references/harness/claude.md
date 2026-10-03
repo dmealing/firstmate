@@ -60,6 +60,13 @@ Styled capture stays internal to the boolean detector; `fm-peek` and model-facin
 The spawn disables Claude's `/bug` and `/feedback` model-drafted feedback flow for every Claude worker and secondmate, preventing a fleet-launched agent from queuing or submitting a bug report on the captain's behalf.
 The controls are scoped to the launched process and never modify the captain's global Claude settings; `launch_template()` in `../../../../../bin/fm-spawn.sh` owns their exact mechanics and defense-in-depth rationale.
 
+## Session identity and Remote Control
+
+Every Claude launch passes `--name`, which Claude shows in the session picker, the Remote Control list, and the terminal title: `2nd mate · <id>` for a secondmate, `worker · <task-id>` for a ship, and `scout · <task-id>` for a scout.
+The per-launch `--settings` JSON sets `remoteControlAtStartup` explicitly, outranking the captain's user setting either way: `true` for a secondmate, which the captain may talk to from the Claude app, and `false` for a ship or scout, so workers never appear there; the primary session is never touched.
+Turning Remote Control off at startup lets Claude 2.1.288 open its blocking "Make auto mode your default permission mode?" nudge whenever only user settings name a non-auto `defaultMode`, and Enter there rewrites the captain's settings; the same JSON therefore pins `permissions.defaultMode` to the mode the permission flag already selects, which makes the launch ineligible for the nudge.
+`launch_template()` in `../../../../../bin/fm-spawn.sh` owns the exact flags, and `../../../../../docs/verification/runtime-backends.md` under "Worker session name and Remote Control" records the live evidence.
+
 ## Task control channel
 
 A Claude task worker's launch brief and Firstmate steering-inbox messages arrive as file-shaped content that is otherwise indistinguishable from indirect prompt injection.

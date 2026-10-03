@@ -696,6 +696,30 @@ ok - secondmate busy contract live guard checked every installed harness
 Pi's real parked pane classified `unknown launch-prompt`.
 That is the launch-prompt backstop: the same spawn's record classified `busy fm-spawn` for a non-prompt mid-turn tail, which is what the active-turn gate reads while a turn is in progress.
 
+## Worker session name and Remote Control
+
+Verified 2026-10-03 on Linux against Claude Code 2.1.288, with the operator's user settings holding `remoteControlAtStartup: true` and `permissions.defaultMode: "bypassPermissions"`.
+Each arm launched interactively in a trusted worktree inside a detached tmux session, submitted no prompt, and was killed after about ten seconds.
+
+```text
+$ claude --dangerously-skip-permissions --settings '{"feedbackDrafts":"off"}' --name 'worker · c'
+footer: worker · c rule, composer reached, /rc indicator present
+$ claude --dangerously-skip-permissions --settings '{"feedbackDrafts":"off","remoteControlAtStartup":false}' --name 'worker · d'
+ Make auto mode your default permission mode?
+   ❯ Yes, set auto mode as my default permission mode
+     No, keep bypass permissions
+$ claude --dangerously-skip-permissions --settings '{"feedbackDrafts":"off","remoteControlAtStartup":false,"permissions":{"defaultMode":"bypassPermissions"}}' --name 'worker · h'
+footer: worker · h rule, composer reached, no /rc indicator
+$ claude --permission-mode auto --settings '{"feedbackDrafts":"off","remoteControlAtStartup":false,"permissions":{"defaultMode":"auto"}}' --name 'worker · i'
+footer: worker · i rule, composer reached, no /rc indicator
+$ tmux display -p -t <session> '#{pane_title}'
+✳ worker · name-check
+```
+
+A second pass after the operator's user setting changed to `remoteControlAtStartup: false` showed `--settings '{"feedbackDrafts":"off","remoteControlAtStartup":true}' --name '2nd mate · j'` reaching the composer with the `/rc` indicator and no nudge, while the worker arm above stayed without `/rc`.
+The nudge reproduced on every Remote-Control-off arm without a flag-scope `defaultMode`, under both permission flags, and adding `skipAutoPermissionPrompt: true` did not suppress it.
+A flag-scope `defaultMode` suppressed it in both modes, so `bin/fm-spawn.sh` carries one matching the permission flag on every ship and scout launch, and `tests/fm-spawn-dispatch-profile.test.sh` pins the rendered flags per launch kind against a fake claude.
+
 ## Codex hook trust
 
 Verified 2026-09-16 on codex-cli 0.151.0, macOS arm64, in a fresh linked worktree of this repository.
