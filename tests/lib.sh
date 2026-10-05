@@ -121,7 +121,8 @@ fm_test_launch_git_prefix() {  # <launch>
 fm_test_launch_command() {  # <launch>
   local command=$1 end=' || return 1 2>/dev/null || exit 1; '
   case "$command" in *"$end"*) command=${command#*"$end"} ;; esac
-  while [[ "$command" == export\ *\;* ]]; do
+  # A secondmate launch also unsets the parent's operational overrides first.
+  while [[ "$command" == export\ *\;* || "$command" == unset\ *\;* ]]; do
     command=${command#*; }
   done
   printf '%s' "$command"
