@@ -564,6 +564,60 @@ test_relaunch_serializes_concurrent_durable_metadata_publication() {
   pass "fm-control relaunch: delivery and concurrent task metadata publication serialize"
 }
 
+# arm_pr_poll <case-dir> <id> <number>: record the task's PR and publish its
+# merge poll the way bin/fm-pr-check.sh does.
+arm_pr_poll() {
+  local dir=$1 id=$2 number=$3 url
+  url="https://github.com/example/repo/pull/$number"
+  printf 'pr=%s\n' "$url" >> "$dir/home/state/$id.meta"
+  (
+    # shellcheck source=/dev/null
+    . "$ROOT/bin/fm-pr-lib.sh"
+    fm_pr_poll_prepare "$dir/home/state" "$id" github "$url" github.com example/repo "$number" \
+      "$ROOT/bin/fm-pr-poll.sh" && fm_pr_poll_publish_prepared
+  ) || fail "could not arm the merge poll for $id"
+}
+
+# The watcher's own authentication of a task's state/<id>.check.sh.
+pr_poll_authenticates() {  # <case-dir> <id>
+  (
+    # shellcheck source=/dev/null
+    . "$ROOT/bin/fm-pr-lib.sh"
+    fm_pr_poll_snapshot_capture "$1/home/state" "$2" "$ROOT/bin/fm-pr-poll.sh"
+  )
+}
+
+test_relaunch_keeps_the_armed_merge_poll_authenticated() {
+  local dir out rc
+  dir=$(new_case poll-trust rl45)
+  add_ship_task "$dir" rl45 claude
+  arm_pr_poll "$dir" rl45 45
+  pr_poll_authenticates "$dir" rl45 || fail "the merge poll must authenticate before relaunch"
+
+  out=$(run_control "$dir" rl45 relaunch --note "continuing after the merge"); rc=$?
+  expect_code 0 "$rc" "relaunch of a task with an armed merge poll should succeed"$'\n'"$out"
+  pr_poll_authenticates "$dir" rl45 \
+    || fail "relaunch must leave the armed merge poll authenticated"$'\n'"$(cat "$dir/home/state/rl45.meta")"
+  pass "fm-control relaunch: an armed merge poll still authenticates afterwards"
+}
+
+test_traced_relaunch_keeps_the_armed_merge_poll_authenticated() {
+  local dir out rc
+  dir=$(new_case poll-trust-trace rl46)
+  add_ship_task "$dir" rl46 claude
+  arm_pr_poll "$dir" rl46 46
+  printf '%s\n' "$$" > "$dir/home/state/.lock"
+  printf '%s on\n' "$$" > "$dir/home/state/.trace-context-effective"
+
+  out=$(run_control "$dir" rl46 relaunch --note "continuing after the merge"); rc=$?
+  expect_code 0 "$rc" "traced relaunch of a task with an armed merge poll should succeed"$'\n'"$out"
+  fm_trace_context_valid "$(meta_field "$dir" rl46 traceparent)" \
+    || fail "the traced relaunch must record its trace carrier"
+  pr_poll_authenticates "$dir" rl46 \
+    || fail "a traced relaunch must leave the armed merge poll authenticated"$'\n'"$(cat "$dir/home/state/rl46.meta")"
+  pass "fm-control relaunch: a recorded trace carrier does not break the armed merge poll"
+}
+
 test_disabled_relaunch_clears_prior_trace_context() {
   local dir out rc
   dir=$(new_case trace-off rl33)
@@ -2975,6 +3029,8 @@ test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven
 test_relaunch_from_linked_home_preserves_recorded_worktree
 test_relaunch_preserves_durable_task_metadata
 test_relaunch_serializes_concurrent_durable_metadata_publication
+test_relaunch_keeps_the_armed_merge_poll_authenticated
+test_traced_relaunch_keeps_the_armed_merge_poll_authenticated
 test_disabled_relaunch_clears_prior_trace_context
 test_relaunch_appends_the_progress_note_to_the_instructions
 test_relaunch_note_inbox_listing_is_safe_on_empty_inbox

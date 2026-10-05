@@ -17,7 +17,8 @@
 #   - a no-mistakes project is initialized (init + doctor) in the NEW subhome clone
 #     and the parent project clone is never mutated (no write through a project)
 #   - spawn meta records kind=secondmate, home=, and the project list; launch runs
-#     in the subhome with the persistent charter and cleared operational overrides
+#     in the subhome with the persistent charter and none of the parent's
+#     operational overrides
 #   - a bare `fm-<id>` send targets the window recorded in THIS home's meta
 #   - backlog items move verbatim into the subhome and leave the main backlog
 #   - recovery respawns from the durable registry + persistent home
@@ -110,6 +111,36 @@ phase_seed() {
   pass "seed: registry scope+projects, charter copied, clones+origins, no-mistakes init in subhome only"
 }
 
+# Run the launch line the spawn staged, from a shell that exports every parent
+# operational override, with the agent replaced by a probe. The secondmate must
+# see none of them - not even as an empty string - so a custom check registered
+# in its own home can be retired there.
+assert_launch_drops_parent_overrides() {
+  local launch probe="$TMP_ROOT/launch-probe" seen="$TMP_ROOT/launch-probe.env" name
+  launch=$(sed -n 's/^staged-launch //p' "$LOG" | tail -1)
+  [ -n "$launch" ] || fail "spawn staged no secondmate launch line"
+  mkdir -p "$probe"
+  cat > "$probe/codex" <<SH
+#!/usr/bin/env bash
+for name in FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE; do
+  [ "\${!name+set}" != set ] || printf '%s\n' "\$name"
+done > "$seen"
+printf '#!/usr/bin/env bash\n' > "\$FM_HOME/state/probe.check.sh"
+chmod 0700 "\$FM_HOME/state/probe.check.sh"
+"$ROOT/bin/fm-check-register.sh" probe && "$ROOT/bin/fm-check-unregister.sh" probe
+SH
+  chmod +x "$probe/codex"
+  PATH="$probe:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$HOME_DIR/state" \
+    FM_DATA_OVERRIDE="$HOME_DIR/data" FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" \
+    FM_CONFIG_OVERRIDE="$HOME_DIR/parent-config" \
+    bash -c "$launch" >/dev/null \
+    || fail "a custom check could not be registered and retired inside the secondmate launch"
+  name=$(tr '\n' ' ' < "$seen")
+  [ -z "$name" ] || fail "secondmate launch still carried parent operational overrides: $name"
+  assert_absent "$SUB_ABS/state/probe.check.sh" "the secondmate's custom check was not retired in its own home"
+  assert_absent "$HOME_DIR/state/probe.check.sh" "the secondmate's custom check landed in the parent home"
+}
+
 phase_spawn() {
   : > "$LOG"
   PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_CONFIG_OVERRIDE="$HOME_DIR/parent-config" \
@@ -124,8 +155,7 @@ phase_spawn() {
   # Launch ran in the subhome, with the persistent charter and cleared overrides,
   # and never ran a project-style treehouse get.
   assert_grep "FM_HOME='$SUB_ABS'" "$LOG" "secondmate launch did not set FM_HOME to the subhome"
-  assert_grep 'FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE=' "$LOG" "launch did not clear operational overrides"
-  assert_grep 'FM_CONFIG_OVERRIDE=' "$LOG" "launch did not clear the config override"
+  assert_launch_drops_parent_overrides
   assert_grep "$SUB_ABS/data/charter.md" "$LOG" "launch did not use the persistent charter"
   assert_no_grep 'notify=' "$LOG" "secondmate codex launch included the parent turn-end notify hook"
   assert_no_grep 'turn-ended' "$LOG" "secondmate codex launch referenced a parent turn-ended signal"
