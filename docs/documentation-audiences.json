@@ -490,6 +490,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/usage-line.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/verification/agy.md",
       "audience": "maintainer-verification"
     },

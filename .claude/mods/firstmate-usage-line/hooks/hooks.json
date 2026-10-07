@@ -1,0 +1,4 @@
+{
+  "description": "Firstmate usage line hooks module: one transcript notice of context and quota use after each completed main-loop answer",
+  "modules": ["./register.ts"]
+}
