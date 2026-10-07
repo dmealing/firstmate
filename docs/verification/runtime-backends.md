@@ -1464,6 +1464,58 @@ That watcher and away-daemon reporting is covered by fakes in `tests/fm-watch-tr
 No recorded screen was available for a model-downgrade confirmation, an MCP approval, or a Claude exit confirmation other than this picker, so those dialogs are not covered.
 Refusing an Enter that would confirm a dialog restores an existing safety path, so it is not gated behind a flag.
 
+### Claude Code state mod
+
+Measured 2026-10-06 against Herdr 0.9.1 and Claude Code 2.1.292 in isolated `fm-lab-` sessions, with the operator's `herdr integration install claude` hook (v10) installed in user settings.
+
+Lifecycle authority, from a real idle Claude pane whose integration hook had reported its session identity:
+
+```text
+$ herdr pane report-agent <pane> --source custom:fmtest --agent claude --state working --seq 10 --message hi
+$ herdr agent get <pane>          # agent_status stays "idle" (screen rule live_prompt_box)
+$ herdr pane report-agent-session <pane> --source herdr:claude --agent claude --seq <ns> --agent-session-id <id> --session-start-source startup
+$ herdr pane report-agent <pane> --source custom:fmtest --agent claude --state idle --seq 11
+$ herdr agent get <pane>          # still "idle" from the screen; no custom report was taken
+```
+
+In a shell pane with no detected agent and no session identity, the same `report-agent` created a `claude` agent reading `working`, and Herdr 0.9.1's `set_hook_authority_at` refuses a non-official source whenever another source owns the pane's session identity.
+Metadata, from a shell pane:
+
+```text
+$ herdr pane report-metadata <pane> --source fm:t --token a=1 --token b=2 --ttl-ms 3000 --seq 100   # tokens {"a":"1","b":"2"}
+$ herdr pane report-metadata <pane> --source fm:t --token a=3 --ttl-ms 3000 --seq 101              # {"a":"3","b":"2"}: a patch
+$ herdr pane report-metadata <pane> --source fm:t --token a=9 --ttl-ms 3000 --seq 50               # {"a":"3","b":"2"}: older seq ignored
+$ sleep 4; herdr pane get <pane>                                                                    # tokens absent after the TTL
+```
+
+`pane get`, `agent get`, and `agent list` all carry the pane's `tokens`, and a `herdr` run inside a pane with `HERDR_SESSION` unset reached that pane's own server through `HERDR_SOCKET_PATH`.
+Loading the mod with `--plugin-dir` showed no dialog, admitted its hooks module once workspace trust was accepted, and wrote `.claude-plugin/types/` and `tsconfig.json` into the mod folder, which the repository ignores.
+An empty insert through `$.prompt.fill` left a mid-line cursor where it was (`abc`, two left arrows, a probe, then `X` gave `aXbc`), and was refused under the `AskUserQuestion` dialog and the background-task exit picker, which the mod reports as a `dialog` composer.
+
+Refresh with:
+
+```sh
+tests/fm-herdr-claude-state-mod-plugin.test.sh
+tests/fm-herdr-claude-state-mod-live-e2e.test.sh
+FM_HERDR_CLAUDE_STATE_MOD_TURN_LIVE=1 tests/fm-herdr-claude-state-mod-turn-live-e2e.test.sh
+```
+
+Observed 2026-10-06:
+
+```text
+ok - Claude Code 2.1.292 (Claude Code) validates the herdr state mod strictly, reading only the herdr pane environment
+ok - Claude Code 2.1.292 (Claude Code) runs the herdr state mod's plugin suites clean: activation, agent and composer states, freshness, lifecycle authority, and herdr failures
+ok - Claude Code 2.1.292 (Claude Code) on herdr 0.9.1: the mod loads through --plugin-dir and an idle session's composer reads empty (screen alone: empty)
+ok - Claude Code 2.1.292 (Claude Code) on herdr 0.9.1: typed text reads pending and a cleared composer reads empty again
+ok - Claude Code 2.1.292 (Claude Code) on herdr 0.9.1: the mod clears its tokens when the session ends
+ok - Claude Code 2.1.292 (Claude Code) on herdr 0.9.1: a submitted turn confirms, reads working, then idle with an empty composer
+ok - Claude Code 2.1.292 (Claude Code) on herdr 0.9.1: a question reads blocked, its dialog never reads as an empty composer, and dismissing it returns to idle
+ok - Claude Code 2.1.292 (Claude Code) on herdr 0.9.1: an interrupted turn returns to idle
+ok - Claude Code 2.1.292 (Claude Code) on herdr 0.9.1: the mod clears its tokens when the session ends
+```
+
+Not verified live: a `prompt.suggest` suggestion, which no lab turn produced (the plugin suite pins it), and lifecycle reports from a session with no Herdr hook, which ran (`--setting-sources project,local`) but whose Herdr state the screen reading matched throughout.
+
 ### Prune and respawn
 
 The real label-collision reproduction is owned by:

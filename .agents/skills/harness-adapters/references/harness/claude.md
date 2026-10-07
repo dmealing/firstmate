@@ -67,6 +67,11 @@ The per-launch `--settings` JSON sets `remoteControlAtStartup` explicitly, outra
 Turning Remote Control off at startup lets Claude 2.1.288 open its blocking "Make auto mode your default permission mode?" nudge whenever only user settings name a non-auto `defaultMode`, and Enter there rewrites the captain's settings; the same JSON therefore pins `permissions.defaultMode` to the mode the permission flag already selects, which makes the launch ineligible for the nudge.
 `launch_template()` in `../../../../../bin/fm-spawn.sh` owns the exact flags, and `../../../../../docs/verification/runtime-backends.md` under "Worker session name and Remote Control" records the live evidence.
 
+## Herdr state mod
+
+Every Claude launch also passes `--plugin-dir` naming the tracked `firstmate-herdr-state` mod, which reports the session's agent and composer state to its Herdr pane from Claude Code's own events and is a no-op outside Herdr.
+`../../../../../docs/herdr-backend.md` under "Claude Code state mod" owns its contract and how the Herdr adapter reads it back.
+
 ## Task control channel
 
 A Claude task worker's launch brief and Firstmate steering-inbox messages arrive as file-shaped content that is otherwise indistinguishable from indirect prompt injection.

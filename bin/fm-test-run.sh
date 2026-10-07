@@ -380,6 +380,8 @@ family_for_basename() {
     fm-secondmate-busy-contract-live-e2e.test.sh|\
     fm-calm-claude-mod-plugin.test.sh|fm-calm-claude-mod-live-e2e.test.sh|\
     fm-calm-pi-queue-retention-live-e2e.test.sh|\
+    fm-herdr-claude-state-mod-plugin.test.sh|fm-herdr-claude-state-mod-live-e2e.test.sh|\
+    fm-herdr-claude-state-mod-turn-live-e2e.test.sh|\
     fm-herdr-submit-confirm-live-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
@@ -769,6 +771,9 @@ tests/fm-harness-adapter-instructions-live-e2e.test.sh 72
 tests/fm-harness-adapter-references.test.sh 64
 tests/fm-harness-liveness-drift-live-e2e.test.sh 1309
 tests/fm-harness-precedence.test.sh 4083
+tests/fm-herdr-claude-state-mod-live-e2e.test.sh 50
+tests/fm-herdr-claude-state-mod-plugin.test.sh 172
+tests/fm-herdr-claude-state-mod-turn-live-e2e.test.sh 46
 tests/fm-herdr-groups.test.sh 5418
 tests/fm-herdr-pi-stale-registration-live-e2e.test.sh 55
 tests/fm-herdr-session-cleanup.test.sh 7425
@@ -1579,6 +1584,12 @@ families_for_changed_path() {
       printf '%s\n' __script__:fm-turnend-guard.test.sh
       printf '%s\n' __script__:fm-sessionstart-nudge.test.sh
       printf '%s\n' __script__:fm-pi-primary-types.test.sh
+      printf '%s\n' live-harness-optin
+      ;;
+    .claude/mods/firstmate-herdr-state/*)
+      # The Claude Code herdr state mod: Firstmate's herdr adapter that reads its
+      # reports back, and the Claude-dependent plugin and live guards.
+      printf '%s\n' __script__:fm-backend-herdr.test.sh
       printf '%s\n' live-harness-optin
       ;;
     .claude/mods/firstmate-calm/*|.pi/extensions/lib/fm-calm-working-ship.ts|\

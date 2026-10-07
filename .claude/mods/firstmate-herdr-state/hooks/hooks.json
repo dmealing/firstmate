@@ -1,0 +1,4 @@
+{
+  "description": "Firstmate herdr state hooks module: a complete no-op unless the session runs inside a herdr pane whose herdr binary resolves",
+  "modules": ["./register.ts"]
+}
