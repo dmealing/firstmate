@@ -11,9 +11,10 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 MOD="$ROOT/.claude/mods/firstmate-usage-line"
-TMP_ROOT=$(fm_test_tmproot fm-usage-line-mod)
 
 command -v node >/dev/null 2>&1 || { echo "skip: node not found for the Claude Code usage-line mod checks"; exit 0; }
+
+TMP_ROOT=$(fm_test_tmproot fm-usage-line-mod)
 
 test_plugin_shape() {
   local link out

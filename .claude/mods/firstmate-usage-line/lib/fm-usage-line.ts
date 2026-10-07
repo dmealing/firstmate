@@ -19,8 +19,10 @@ export function resetLabel(iso: string | undefined): string | undefined {
   if (Number.isNaN(at.getTime())) return undefined;
   const hour = at.getHours();
   const minutes = at.getMinutes();
-  const clock = `${hour % 12 === 0 ? 12 : hour % 12}${minutes === 0 ? "" : `:${String(minutes).padStart(2, "0")}`}${hour < 12 ? "am" : "pm"}`;
-  return `${MONTHS[at.getMonth()]} ${at.getDate()}, ${clock}`;
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  const minuteText = minutes === 0 ? "" : `:${String(minutes).padStart(2, "0")}`;
+  const meridiem = hour < 12 ? "am" : "pm";
+  return `${MONTHS[at.getMonth()]} ${at.getDate()}, ${hour12}${minuteText}${meridiem}`;
 }
 
 function percent(value: number): string {
