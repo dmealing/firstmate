@@ -720,6 +720,36 @@ A second pass after the operator's user setting changed to `remoteControlAtStart
 The nudge reproduced on every Remote-Control-off arm without a flag-scope `defaultMode`, under both permission flags, and adding `skipAutoPermissionPrompt: true` did not suppress it.
 A flag-scope `defaultMode` suppressed it in both modes, so `bin/fm-spawn.sh` carries one matching the permission flag on every ship and scout launch, and `tests/fm-spawn-dispatch-profile.test.sh` pins the rendered flags per launch kind against a fake claude.
 
+## Usage line
+
+Measured 2026-10-06 on Linux against Claude Code 2.1.292, in a fresh project whose `.claude/skills/firstmate-usage-line` entry links the mod, with Haiku turns.
+
+```text
+$ jq -c 'select(.type=="system") | {subtype, content}' <session>.jsonl
+{"subtype":"turn_duration","content":null}
+{"subtype":"informational","content":"context 21% · 5h quota 69% · week 28% (resets Oct 13, 4pm)"}
+```
+
+Asked to quote any line of the conversation that begins with `context` and a percentage, the model answered `NONE`, so the stored notice never reaches its context.
+The terminal transcript did not draw the notice; a variant answering `turn.complete` with the line drew `● <plugins>: <line>` beneath the answer, naming every plugin hooked on that event, and stored the same `informational` row.
+The Remote Control view on claude.ai and the mobile app was not checked, because it needs the signed-in account.
+
+Refresh with:
+
+```sh
+tests/fm-usage-line-mod-plugin.test.sh
+FM_USAGE_LINE_MOD_LIVE_E2E=1 tests/fm-usage-line-mod-live-e2e.test.sh
+```
+
+Observed 2026-10-06:
+
+```text
+ok - Claude Code 2.1.292 (Claude Code) validates the usage-line mod strictly: it hooks only the turn completion and calls only the usage read and the notice append
+ok - Claude Code 2.1.292 (Claude Code) runs the usage-line mod's plugin suites clean: the usage read, subagent turns, failures, and the line text
+ok - Claude Code 2.1.292 (Claude Code) stores the usage line as a transcript notice beneath the answer: context 20% · 5h quota 71% · week 29% (resets Oct 13, 4pm)
+ok - Claude Code 2.1.292 (Claude Code) never shows the model the usage notice: asked to quote it, the model answered 'NONE'
+```
+
 ## Codex hook trust
 
 Verified 2026-09-16 on codex-cli 0.151.0, macOS arm64, in a fresh linked worktree of this repository.

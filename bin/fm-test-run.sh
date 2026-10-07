@@ -296,7 +296,7 @@ family_for_basename() {
     fm-kimi-harness.test.sh|fm-devin-harness.test.sh|fm-muse-harness.test.sh|fm-rovo-harness.test.sh|fm-agy-harness.test.sh|fm-omp-harness.test.sh|fm-herdr-lab.test.sh|fm-lint.test.sh|\
     fm-lint-workflows.test.sh|\
     fm-operational-input.test.sh|fm-pi-primary-types.test.sh|\
-    fm-calm-claude-mod.test.sh|\
+    fm-calm-claude-mod.test.sh|fm-usage-line-mod.test.sh|\
     fm-harness-adapter-references.test.sh|fm-project-mode.test.sh|\
     fm-send-popup-settle.test.sh|fm-send-settle.test.sh|\
     fm-subagent-pretool-check.test.sh|\
@@ -382,6 +382,7 @@ family_for_basename() {
     fm-calm-pi-queue-retention-live-e2e.test.sh|\
     fm-herdr-claude-state-mod-plugin.test.sh|fm-herdr-claude-state-mod-live-e2e.test.sh|\
     fm-herdr-claude-state-mod-turn-live-e2e.test.sh|\
+    fm-usage-line-mod-plugin.test.sh|fm-usage-line-mod-live-e2e.test.sh|\
     fm-herdr-submit-confirm-live-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
@@ -882,6 +883,9 @@ tests/fm-trace-context-spawn.test.sh 57488
 tests/fm-turnend-foreign-owner-arm-fix.test.sh 5575
 tests/fm-turnend-guard.test.sh 34727
 tests/fm-update.test.sh 11894
+tests/fm-usage-line-mod-live-e2e.test.sh 46
+tests/fm-usage-line-mod-plugin.test.sh 172
+tests/fm-usage-line-mod.test.sh 1252
 tests/fm-vendor-auth-probe.test.sh 43278
 tests/fm-voice-relay.test.sh 28917
 tests/fm-wake-daemon-lifecycle-e2e.test.sh 7345
@@ -1570,6 +1574,12 @@ families_for_changed_path() {
       printf '%s\n' __script__:fm-turnend-guard.test.sh
       printf '%s\n' __script__:fm-sessionstart-nudge.test.sh
       printf '%s\n' __script__:fm-pi-primary-types.test.sh
+      printf '%s\n' live-harness-optin
+      ;;
+    .claude/mods/firstmate-usage-line/*|.agents/skills/firstmate-usage-line)
+      # The Claude Code usage-line mod: its portable shape and text checks, and the
+      # Claude-dependent plugin and live guards.
+      printf '%s\n' __script__:fm-usage-line-mod.test.sh
       printf '%s\n' live-harness-optin
       ;;
     .claude/mods/firstmate-herdr-state/*)

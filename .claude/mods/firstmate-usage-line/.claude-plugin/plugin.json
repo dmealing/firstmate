@@ -1,0 +1,9 @@
+{
+  "name": "firstmate-usage-line",
+  "version": "1.0.0",
+  "description": "Firstmate usage line for Claude Code: after each completed answer in a Firstmate session, appends one short transcript notice with the context window's fill and each plan-limit window's use, from the figures Claude Code already holds. The notice is shown and stored, never read by the model, and the mod makes no model call, network request, or new turn.",
+  "author": {
+    "name": "Firstmate",
+    "url": "https://github.com/kunchenguid/firstmate"
+  }
+}
