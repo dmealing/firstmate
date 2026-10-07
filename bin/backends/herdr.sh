@@ -3181,6 +3181,45 @@ fm_backend_herdr_visible_capture_ansi() {  # <target>
 # same commit. The muse `⟩` glyph this adapter's local bare-prompt pattern
 # silently omitted is exactly the drift class that consolidation removes.
 
+# --- Claude Code state mod reports --------------------------------------------
+#
+# The firstmate-herdr-state mod (.claude/mods/firstmate-herdr-state), loaded into every
+# Claude session fm-spawn launches, publishes that session's agent state and composer
+# state as herdr pane metadata tokens with a TTL (docs/herdr-backend.md "Claude Code
+# state mod" owns the contract). A report counts only while it is fresh: herdr still
+# holds its tokens, `agent get` attributes the pane to a live claude, every token holds
+# a known value, and the report time is within FM_HERDR_MOD_REPORT_MAX_AGE seconds of
+# now. A missing or stale report yields nothing, never "empty", so every caller keeps
+# its screen reading for that case.
+FM_HERDR_MOD_REPORT_MAX_AGE=${FM_HERDR_MOD_REPORT_MAX_AGE:-60}
+# shellcheck disable=SC2016 # jq program text, not shell expansions
+FM_BACKEND_HERDR_MOD_REPORT_JQ='def fm_mod_report:
+  (. // {}) as $a
+  | ($a.tokens // {}) as $t
+  | if ($a.agent // "") == "claude"
+      and (($t.fm_claude_state // "") | test("^(idle|working|blocked)$"))
+      and (($t.fm_claude_composer // "") | test("^(empty|suggestion|pending|dialog)$"))
+      and (($t.fm_claude_at // "") | test("^[0-9]{1,16}$"))
+      and ((($t.fm_claude_at | tonumber) / 1000 - now) | . <= $maxage and . >= -$maxage)
+    then {state: $t.fm_claude_state, composer: $t.fm_claude_composer}
+    else null end;'
+
+# fm_backend_herdr_mod_composer: the fresh mod-reported composer of <target> as
+# empty|pending (a dim suggestion is an empty composer), or nothing. An empty box
+# under a dialog that holds the keys is reported as `dialog` and answers
+# nothing here, leaving the screen reading in charge. It reads `agent list`,
+# which, like `agent get`, lists only panes herdr attributes to a live agent.
+fm_backend_herdr_mod_composer() {  # <target> -> empty|pending|""
+  local out
+  fm_backend_herdr_parse_target "$1" || return 0
+  out=$(fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" agent list 2>/dev/null) || return 0
+  printf '%s' "$out" | jq -r --argjson maxage "$FM_HERDR_MOD_REPORT_MAX_AGE" --arg pane "$FM_BACKEND_HERDR_PANE" \
+    "$FM_BACKEND_HERDR_MOD_REPORT_JQ"'
+    [.result.agents[]? | select(.pane_id == $pane) | fm_mod_report | select(. != null)]
+    | first | select(. != null) | .composer | select(. != "dialog")
+    | if . == "pending" then "pending" else "empty" end' 2>/dev/null
+}
+
 fm_backend_herdr_agent_identity_raw() {  # <session> <pane> -> <agent>\t<status>
   local out
   out=$(fm_backend_herdr_cli "$1" agent get "$2" 2>/dev/null) || return 1
@@ -3195,8 +3234,9 @@ fm_backend_herdr_composer_identity() {  # <target> -> "<agent>\t<status>"
   fm_backend_herdr_agent_identity_raw "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE"
 }
 
-# fm_backend_herdr_composer_state: thin adapter - capture plus capabilities
-# in, shared verdict out. The ANSI capture is preferred (styled=1 lets the
+# fm_backend_herdr_composer_state: a fresh Claude Code state mod report wins
+# (fm_backend_herdr_mod_composer above); otherwise thin adapter - capture plus
+# capabilities in, shared verdict out. The ANSI capture is preferred (styled=1 lets the
 # shared classifier strip ghost/placeholder text); when it fails on an older
 # herdr, the plain capture degrades the descriptor to styled=0 rather than
 # letting ghost text be misread as typed input. Identity is fetched lazily,
@@ -3215,6 +3255,11 @@ fm_backend_herdr_composer_identity() {  # <target> -> "<agent>\t<status>"
 fm_backend_herdr_composer_state() {  # <target> -> empty|pending|pending-unproven|unknown
   local target=$1 cap caps verdict identity
   fm_backend_herdr_parse_target "$target" || { printf 'unknown'; return 0; }
+  verdict=$(fm_backend_herdr_mod_composer "$target")
+  if [ -n "$verdict" ]; then
+    printf '%s' "$verdict"
+    return 0
+  fi
   if cap=$(fm_backend_herdr_visible_capture_ansi "$target" 2>/dev/null); then
     caps=$(printf 'styled=1\ncursor=0\nidentity=1')
   elif cap=$(fm_backend_herdr_visible_capture "$target"); then
@@ -3676,17 +3721,26 @@ fm_backend_herdr_classify_submit_agent_status() {  # <raw-agent_status>
 
 # fm_backend_herdr_agent_status_raw: one `agent get` read, echoing the raw
 # agent_status string (working/idle/done/blocked/...), or empty on any
-# failure. Deliberately skips fm_backend_herdr_target_ready's server-ensure
+# failure; a fresh Claude Code state mod report replaces herdr's value unless
+# `native` asks for herdr's own. Deliberately skips fm_backend_herdr_target_ready's server-ensure
 # round trip (an extra `status --json` call) that fm_backend_herdr_busy_state
 # pays on every call: fm_backend_herdr_wait_for_working polls this in a tight
 # loop right after a caller has already parsed the target and confirmed the
 # server is live (e.g. fm_backend_herdr_send_text_submit, immediately after a
 # successful send-text), so re-checking server liveness on every poll would
 # only add latency without adding safety.
-fm_backend_herdr_agent_status_raw() {  # <session> <pane_id>
-  local session=$1 pane_id=$2 out
+fm_backend_herdr_agent_status_raw() {  # <session> <pane_id> [native]
+  local session=$1 pane_id=$2 source=${3:-} out
   out=$(fm_backend_herdr_cli "$session" agent get "$pane_id" 2>/dev/null) || { printf ''; return 0; }
-  printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null
+  if [ "$source" = native ]; then
+    printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null
+    return 0
+  fi
+  # A fresh Claude Code state mod report is the session's own state and wins over
+  # herdr's screen-derived agent_status, which can read idle through a whole turn.
+  printf '%s' "$out" | jq -r --argjson maxage "$FM_HERDR_MOD_REPORT_MAX_AGE" \
+    "$FM_BACKEND_HERDR_MOD_REPORT_JQ"'
+    (.result.agent | fm_mod_report | if . == null then null else .state end) // .result.agent.agent_status // empty' 2>/dev/null
 }
 
 # fm_backend_herdr_busy_state: semantic busy state from herdr's native
@@ -4046,7 +4100,8 @@ fm_backend_herdr_wait_transition() {  # <session> <timeout_secs> <state_dir> <pa
       if [ -z "$pane_id" ] || [ "$pane_id" = "$w" ]; then
         continue
       fi
-      raw=$(fm_backend_herdr_agent_status_raw "$session" "$pane_id")
+      # herdr's own status, the same source as the edge stream drained below.
+      raw=$(fm_backend_herdr_agent_status_raw "$session" "$pane_id" native)
       [ -n "$raw" ] || continue
       record=$(fm_backend_herdr_normalize_event "$pane_id" "" "$raw" "")
       if hit=$(fm_backend_herdr_apply_transition "$state" "$session" "$record"); then

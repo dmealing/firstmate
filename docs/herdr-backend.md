@@ -664,6 +664,35 @@ Claude Code itself then removes it from the submitted prompt, so a Claude Code p
 `bin/fm-operational-input.sh` owns current operational construction and parsing, and the AFK skill owns legacy away-input compatibility.
 No Herdr-specific copy of that protocol exists.
 
+## Claude Code state mod
+
+Herdr derives a Claude session's working, idle, or blocked state from the screen; its own Claude integration reports only session identity.
+Every Claude session `bin/fm-spawn.sh` launches - ship, scout, secondmate, and relaunch - loads the `firstmate-herdr-state` mod (`.claude/mods/firstmate-herdr-state`) through `--plugin-dir`, whatever its working directory.
+The mod reads Claude Code's own events and is a complete no-op unless the session runs in a Herdr pane: `HERDR_ENV=1`, a pane id, the pane's server socket, and a `HERDR_BIN_PATH` that resolves.
+
+The mod publishes Herdr pane metadata under the source `custom:firstmate-claude`, which this section owns as a contract:
+
+- `fm_claude_state` is `working` from a submitted prompt or a started turn, `blocked` while a question tool (`AskUserQuestion`, `ExitPlanMode`) or a permission prompt waits on the person until that tool call resolves, and `idle` once the main turn completes, including an interrupted one.
+- `fm_claude_composer` is `pending` for any text in the prompt box, `suggestion` when only Claude Code's dim suggestion shows, `empty` for nothing, and `dialog` for an empty box while a dialog holds the keys.
+- `fm_claude_at` is the report time in epoch milliseconds.
+
+The tokens carry a 45-second TTL refreshed every 15 seconds and are cleared at session end, so a dead session's report expires on its own.
+The mod re-reads the prompt box every second, which catches changes no event announces, such as a restored or recalled prompt or a dialog opening.
+Metadata round-trips through `agent get` and `agent list` for exactly that pane and never takes over Herdr's own state, which is why it, rather than a Firstmate-owned file, carries the report.
+
+On Herdr 0.9.1, `report-agent` and Herdr's Claude integration (`herdr integration install claude`) cannot both own a pane.
+Once that integration records the pane's session identity under `herdr:claude`, Herdr refuses `report-agent` from every other source, and a report accepted before the identity lands would stay in force while every later one is refused, freezing Herdr's state.
+So the mod sends `report-agent` (with no session id) and `release-agent` only when the session's merged settings run no Herdr hook; with the integration installed it publishes metadata only, and Herdr keeps its screen detection and session restore.
+[Verification](verification/runtime-backends.md#claude-code-state-mod) records the measured behavior.
+
+`fm_backend_herdr_composer_state` and `fm_backend_herdr_agent_status_raw` prefer a fresh report: the pane is attributed to a live `claude`, every token holds a known value, and `fm_claude_at` is within `FM_HERDR_MOD_REPORT_MAX_AGE` seconds (default 60) of now.
+A dim suggestion reads as an empty composer, so an idle Claude session no longer makes `fm-control.sh exit` or `fm-send.sh` refuse its composer as unknown.
+A `dialog` composer, and a missing, stale, foreign, or malformed report, all leave the screen reading in charge, never an empty verdict.
+The push-event reconcile keeps Herdr's own status, the same source as the event stream it drains.
+
+A permission prompt reads `blocked` until the approved tool finishes, because no event marks the approval itself.
+Any other dialog, such as Claude Code's background-task exit picker, leaves the agent state as it was and reports the composer as `dialog`.
+
 ## Restart and liveness behavior
 
 ### Husks after a server restart
@@ -845,6 +874,9 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 tests/fm-backend-herdr.test.sh
 tests/fm-composer-lib.test.sh
 tests/fm-herdr-submit-confirm-live-e2e.test.sh
+tests/fm-herdr-claude-state-mod-plugin.test.sh
+tests/fm-herdr-claude-state-mod-live-e2e.test.sh
+FM_HERDR_CLAUDE_STATE_MOD_TURN_LIVE=1 tests/fm-herdr-claude-state-mod-turn-live-e2e.test.sh
 tests/fm-backend-herdr-smoke.test.sh
 tests/fm-backend-herdr-prune-safety-e2e.test.sh
 tests/fm-backend-herdr-respawn-idem-e2e.test.sh

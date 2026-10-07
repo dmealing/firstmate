@@ -13,3 +13,7 @@ __pycache__/
 config/
 
 .tools/
+
+# Claude Code lays its API types beside a mod it loads with --plugin-dir
+.claude/mods/*/.claude-plugin/types/
+.claude/mods/*/tsconfig.json

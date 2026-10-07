@@ -1,0 +1,10 @@
+{
+  "name": "firstmate-herdr-state",
+  "version": "1.0.0",
+  "description": "Firstmate herdr state for Claude Code: inside a herdr pane, publishes the session's agent state (working, blocked, idle) and composer state (empty, dim suggestion, or real input) from Claude Code's own events, as herdr pane metadata Firstmate reads back and, where herdr's Claude integration is not installed, as herdr lifecycle reports. Outside herdr it is a complete no-op.",
+  "author": {
+    "name": "Firstmate",
+    "url": "https://github.com/kunchenguid/firstmate"
+  },
+  "types": "./types/index.d.ts"
+}
