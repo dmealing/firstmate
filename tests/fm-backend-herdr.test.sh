@@ -3934,6 +3934,9 @@ test_busy_state_unknown_on_no_agent() {
 # fm_claude_at metadata tokens on the pane; a fresh report wins over the screen,
 # while a stale, foreign, or malformed one falls back to the screen reading.
 
+# A composer screen with real typed text, the visible-text fallback witness.
+MOD_TEST_PENDING_SCREEN=$'  ╭────────────────────────╮\n  │ ❯ hello captain        │\n  ╰──────── Composer ──────╯\n'
+
 mod_agent() {  # <pane> <state> <composer> <at-ms> [agent] -> one agent object
   printf '{"pane_id":"%s","agent":"%s","agent_status":"idle","tokens":{"fm_claude_state":"%s","fm_claude_composer":"%s","fm_claude_at":"%s"}}' \
     "$1" "${5:-claude}" "$2" "$3" "$4"
@@ -3954,14 +3957,13 @@ composer_with_agents() {  # <name> <agents-json-array> <screen-or-empty> -> verd
 }
 
 test_composer_state_prefers_a_fresh_mod_report() {
-  local now out log pending_screen
+  local now out log
   now=$(mod_now_ms)
-  pending_screen=$'  ╭────────────────────────╮\n  │ ❯ hello captain        │\n  ╰──────── Composer ──────╯\n'
   out=$(composer_with_agents mod-empty "[$(mod_agent w1:p2 idle empty "$now")]" '')
   [ "$out" = empty ] || fail "a fresh mod report of an empty composer should read empty without the screen, got '$out'"
   log=$(cat "$TMP_ROOT/mod-empty/log")
   assert_not_contains "$log" $'pane\x1fread' "a fresh mod report still read the screen"
-  out=$(composer_with_agents mod-suggestion "[$(mod_agent w1:p1 idle pending "$now"),$(mod_agent w1:p2 idle suggestion "$now")]" "$pending_screen")
+  out=$(composer_with_agents mod-suggestion "[$(mod_agent w1:p1 idle pending "$now"),$(mod_agent w1:p2 idle suggestion "$now")]" "$MOD_TEST_PENDING_SCREEN")
   [ "$out" = empty ] || fail "a dim suggestion the mod reports must read as an empty composer, got '$out'"
   out=$(composer_with_agents mod-pending "[$(mod_agent w1:p2 working pending "$now")]" '')
   [ "$out" = pending ] || fail "typed text the mod reports must read pending, got '$out'"
@@ -3969,25 +3971,24 @@ test_composer_state_prefers_a_fresh_mod_report() {
 }
 
 test_composer_state_falls_back_without_a_fresh_mod_report() {
-  local now old out pending_screen
+  local now old out
   now=$(mod_now_ms)
   old=$((now - 120000))
-  pending_screen=$'  ╭────────────────────────╮\n  │ ❯ hello captain        │\n  ╰──────── Composer ──────╯\n'
   # A stale report: the screen decides, so visible text stays pending...
-  out=$(composer_with_agents mod-stale "[$(mod_agent w1:p2 idle empty "$old")]" "$pending_screen")
+  out=$(composer_with_agents mod-stale "[$(mod_agent w1:p2 idle empty "$old")]" "$MOD_TEST_PENDING_SCREEN")
   [ "$out" = pending ] || fail "a stale mod report must fall back to the screen, got '$out'"
   # ...and an unreadable screen stays unknown, never empty.
   out=$(composer_with_agents mod-stale-unknown "[$(mod_agent w1:p2 idle empty "$old")]" '')
   [ "$out" = unknown ] || fail "a stale mod report over an unreadable screen must stay unknown, got '$out'"
   out=$(composer_with_agents mod-none '[]' '')
   [ "$out" = unknown ] || fail "a missing mod report must fall back to the screen's unknown, got '$out'"
-  out=$(composer_with_agents mod-other-pane "[$(mod_agent w1:p3 idle empty "$now")]" "$pending_screen")
+  out=$(composer_with_agents mod-other-pane "[$(mod_agent w1:p3 idle empty "$now")]" "$MOD_TEST_PENDING_SCREEN")
   [ "$out" = pending ] || fail "another pane's report must not answer for this pane, got '$out'"
-  out=$(composer_with_agents mod-not-claude "[$(mod_agent w1:p2 idle empty "$now" codex)]" "$pending_screen")
+  out=$(composer_with_agents mod-not-claude "[$(mod_agent w1:p2 idle empty "$now" codex)]" "$MOD_TEST_PENDING_SCREEN")
   [ "$out" = pending ] || fail "tokens on a pane herdr attributes to another agent must be ignored, got '$out'"
   out=$(composer_with_agents mod-dialog "[$(mod_agent w1:p2 idle dialog "$now")]" '')
   [ "$out" = unknown ] || fail "an empty box under a dialog must leave the screen in charge, got '$out'"
-  out=$(composer_with_agents mod-bad-value "[$(mod_agent w1:p2 idle maybe "$now")]" "$pending_screen")
+  out=$(composer_with_agents mod-bad-value "[$(mod_agent w1:p2 idle maybe "$now")]" "$MOD_TEST_PENDING_SCREEN")
   [ "$out" = pending ] || fail "a malformed mod report must be ignored, got '$out'"
   pass "fm_backend_herdr_composer_state: a stale, missing, foreign, malformed, or dialog-covered mod report falls back to the screen reading, never to empty"
 }
