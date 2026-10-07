@@ -3236,13 +3236,13 @@ fm_backend_herdr_composer_identity() {  # <target> -> "<agent>\t<status>"
 
 # fm_backend_herdr_composer_state: a fresh Claude Code state mod report wins
 # (fm_backend_herdr_mod_composer above); otherwise thin adapter - capture plus
-# capabilities in, shared verdict out. The ANSI capture is preferred (styled=1 lets the
-# shared classifier strip ghost/placeholder text); when it fails on an older
-# herdr, the plain capture degrades the descriptor to styled=0 rather than
-# letting ghost text be misread as typed input. Identity is fetched lazily,
-# only when the classifier reports the verdict depends on it (a pi separator
-# pair below every other candidate), preserving this adapter's original
-# consult-only-when-needed behavior.
+# capabilities in, shared verdict out. The ANSI capture is preferred
+# (styled=1 lets the shared classifier strip ghost/placeholder text); when
+# it fails on an older herdr, the plain capture degrades the descriptor to
+# styled=0 rather than letting ghost text be misread as typed input.
+# Identity is fetched lazily, only when the classifier reports the verdict
+# depends on it (a pi separator pair below every other candidate),
+# preserving this adapter's original consult-only-when-needed behavior.
 # The capture is the FULL VISIBLE VIEWPORT, never a bounded tail: an overlay
 # a harness renders between the composer and the pane bottom - Claude Code's
 # slash-command popup is the verified shape (2.1.283, ~19 menu rows) - pushes
@@ -3721,10 +3721,11 @@ fm_backend_herdr_classify_submit_agent_status() {  # <raw-agent_status>
 
 # fm_backend_herdr_agent_status_raw: one `agent get` read, echoing the raw
 # agent_status string (working/idle/done/blocked/...), or empty on any
-# failure; a fresh Claude Code state mod report replaces herdr's value unless
-# `native` asks for herdr's own. Deliberately skips fm_backend_herdr_target_ready's server-ensure
-# round trip (an extra `status --json` call) that fm_backend_herdr_busy_state
-# pays on every call: fm_backend_herdr_wait_for_working polls this in a tight
+# failure; a fresh Claude Code state mod report replaces herdr's value
+# unless `native` asks for herdr's own. Deliberately skips
+# fm_backend_herdr_target_ready's server-ensure round trip (an extra
+# `status --json` call) that fm_backend_herdr_busy_state pays on every
+# call: fm_backend_herdr_wait_for_working polls this in a tight
 # loop right after a caller has already parsed the target and confirmed the
 # server is live (e.g. fm_backend_herdr_send_text_submit, immediately after a
 # successful send-text), so re-checking server liveness on every poll would
