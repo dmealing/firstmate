@@ -58,6 +58,10 @@
 #   bare       - an agent prompt glyph row with no border at all (claude `❯`,
 #                codex `›`, muse `⟩`, cursor `→`). The agent glyph is itself the container
 #                proof; a bare SHELL glyph (`>` `$` `%` `#`) never is.
+#                A named Claude Code session burns its title into the TOP rule
+#                (`──── name ─`); _fm_composer_bare_rule_sandwich spares that
+#                shape and nothing like it. Grok's titled BOTTOM border is a
+#                different recognizer; never merge the two.
 #                A bare composer's WRAP region (typed input continuing on the
 #                rows beneath the glyph row) is bounded by blank rows, by
 #                structural edges, and by the FURNITURE rows a harness draws
@@ -776,9 +780,9 @@ _fm_composer_pi_separator_row() {  # <trimmed-row>
 # The row must OPEN with the same 8-column dash run the strict separator
 # requires. Width is proven by comparing canonical space strings, never by
 # `${#row}`, which counts characters under UTF-8 and bytes under LC_ALL=C
-# (issue #1988). Title text is ASCII-printable only, the same boundary
-# _fm_composer_titled_bottom_ok holds; any other glyph leaves residue, and the
-# verdict stays `unknown`, the safe direction.
+# (issue #1988). Title text is ASCII-printable plus the one-column middle dot
+# `·` that Firstmate's own session names carry (`worker · <id>`); any other
+# glyph leaves residue, and the verdict stays `unknown`, the safe direction.
 _fm_composer_titled_rule_row() {  # <trimmed-row> <plain-rule-spaces>
   local row=$1 expected=$2 spaces
   case "$row" in
@@ -786,6 +790,7 @@ _fm_composer_titled_rule_row() {  # <trimmed-row> <plain-rule-spaces>
     *) return 1 ;;
   esac
   spaces=${row//─/ }
+  spaces=${spaces//·/ }
   spaces=$(printf '%s' "$spaces" | LC_ALL=C sed 's/[!-~]/ /g')
   case "$spaces" in
     *[![:space:]]*) return 1 ;;
