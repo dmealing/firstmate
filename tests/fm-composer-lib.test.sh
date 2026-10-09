@@ -1013,7 +1013,7 @@ test_matrix_claude_titled_top_rule() {
   # read as a lower unmatched separator, and a visibly empty composer read
   # `unknown` on every cursorless backend, refusing steers, exit, and relaunch.
   local rule title top bottom footer screen ansi typed claude_idle
-  local scrollback short nonascii flush blank
+  local scrollback short named nonascii flush blank
   claude_idle=$(printf 'claude\tidle')
   rule='────────────────────────────────────────────────────────────'
   title=' Firstmate operational input 1790546042 '
@@ -1043,7 +1043,14 @@ test_matrix_claude_titled_top_rule() {
   # is not that composer's top edge.
   short="${rule}${title}─"$'\n❯'"$NBSP"$'\n'"$bottom"
   assert_screen "mismatched titled rule width" unknown "$CAPS_STYLED_NOID" "$short"
-  # A non-ASCII title leaves residue and refuses rather than guessing width.
+  # Firstmate's own session names separate role and id with a one-column
+  # middle dot (`worker · <id>`), which maps to one column like ASCII does.
+  named="${rule}───────────────────── worker · fm-lab-test ─"
+  assert_screen "fm-spawn named claude idle on herdr" empty "$CAPS_STYLED" \
+    "$named"$'\n❯'"$NBSP"$'\n'"$bottom"$'\n'"$footer" '' "$claude_idle"
+  assert_screen "fm-spawn named claude typed on herdr" pending "$CAPS_STYLED" \
+    "$named"$'\n❯ fix the login bug\n'"$bottom"$'\n'"$footer" '' "$claude_idle"
+  # Any other non-ASCII title leaves residue and refuses rather than guessing width.
   nonascii="${rule}─── ✳ Firstmate operational input 179054604 ─"$'\n❯'"$NBSP"$'\n'"$bottom"
   assert_screen "non-ASCII titled rule" unknown "$CAPS_STYLED_NOID" "$nonascii"
   # The rule must open with the strict separator's dash run.

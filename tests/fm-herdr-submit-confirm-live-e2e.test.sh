@@ -11,6 +11,13 @@
 # actually exited. It fails naming the harness and version rather than
 # degrading quietly.
 #
+# A second pane launches Claude the way fm-spawn names a worker
+# (`--name 'worker · <id>'`, whose title Claude draws into the composer's top
+# rule) without the state mod, so the screen-read composer path is what is
+# proven: an idle composer reads empty, a typed draft reads pending, and
+# fm-control.sh's exit sequence (composer proof, then `/exit` through the
+# slash-command list) stops the agent.
+#
 # Run explicitly with FM_HERDR_SUBMIT_CONFIRM_LIVE=1 after a Herdr or Claude
 # upgrade, and before trusting a refreshed docs/verification/runtime-backends.md
 # "Herdr submit confirmation" entry.
@@ -82,6 +89,17 @@ PANE=$(printf '%s' "$WS_JSON" | jq -er '.result.root_pane.pane_id') \
 TARGET="$SESSION:$PANE"
 VERSION=$(PATH="$ORIGINAL_PATH" claude --version 2>/dev/null | head -1 || printf 'version-unknown')
 HERDR_VER=$(PATH="$ORIGINAL_PATH" herdr --version 2>/dev/null | head -1 || printf 'herdr-unknown')
+
+wait_lab_idle() {  # <pane> <label> - poll up to 45s until the lab registers an idle agent
+  local pane=$1 label=$2 st idle=0 i=0
+  while [ "$i" -lt 45 ]; do
+    st=$(lab agent get "$pane" 2>/dev/null | jq -r '.result.agent.agent_status // empty')
+    case "$st" in idle|done|blocked) idle=1; break ;; esac
+    i=$((i + 1))
+    sleep 1
+  done
+  [ "$idle" = 1 ] || fail "$label ($VERSION) on $HERDR_VER never registered an idle agent in the lab pane"
+}
 
 lab pane run "$PANE" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\"}'" >/dev/null \
   || fail "could not launch Claude Code ($VERSION) in the isolated Herdr pane"
@@ -205,5 +223,54 @@ done
 [ "$exited" = 1 ] \
   || fail "Claude Code ($VERSION) on $HERDR_VER: the /exit submission reported '$verdict' but the agent never exited"
 pass "live Herdr submit confirm: Claude Code ($VERSION) on $HERDR_VER proves and submits a typed /exit behind its command popup"
+
+# The fleet launch shape, with the state mod deliberately absent: the screen
+# read is the fallback whenever a mod report is stale or missing.
+WS_JSON=$(lab workspace create --cwd "$ROOT" --label fm-exitlive --no-focus) \
+  || fail "could not create the isolated exit workspace"
+PANE=$(printf '%s' "$WS_JSON" | jq -er '.result.root_pane.pane_id') \
+  || fail "workspace create did not return a pane id for the exit pane"
+TARGET="$SESSION:$PANE"
+lab pane run "$PANE" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\"}' --name 'worker · fm-exitlive-$$'" >/dev/null \
+  || fail "could not launch a named Claude Code ($VERSION) in the isolated Herdr pane"
+wait_lab_idle "$PANE" "named Claude Code"
+
+composer_reaches() {  # <want> - poll the screen-read verdict until it settles; leaves the last read in $state
+  local want=$1 n=0
+  state=''
+  while [ "$n" -lt 20 ]; do
+    state=$(fm_backend_herdr_composer_state "$TARGET")
+    [ "$state" = "$want" ] && return 0
+    n=$((n + 1))
+    sleep 0.5
+  done
+  return 1
+}
+composer_reaches empty \
+  || fail "named Claude Code ($VERSION) on $HERDR_VER: an idle composer under its titled rule must read empty, got '$state'"
+lab pane send-text "$PANE" "an unsent draft" >/dev/null || fail "could not type the draft"
+composer_reaches pending \
+  || fail "named Claude Code ($VERSION) on $HERDR_VER: a typed draft under its titled rule must read pending, got '$state'"
+lab pane send-keys "$PANE" ctrl+u >/dev/null || fail "could not clear the draft"
+composer_reaches empty \
+  || fail "named Claude Code ($VERSION) on $HERDR_VER: a cleared composer must read empty again, got '$state'"
+pass "live Herdr composer: named Claude Code ($VERSION) on $HERDR_VER reads idle as empty and a draft as pending"
+
+# fm-control.sh's exit sequence: submit /exit with its Enter retries, then the
+# agent must stop. The verdict itself is not asserted, because Claude may exit
+# before the composer can be re-read.
+fm_backend_herdr_send_text_submit "$TARGET" "/exit" 3 0.5 1.2 >/dev/null \
+  || fail "named Claude Code ($VERSION) on $HERDR_VER: send_text_submit could not deliver /exit"
+st=''
+i=0
+while [ "$i" -lt 30 ]; do
+  st=$(fm_backend_herdr_agent_state "$TARGET")
+  [ "$st" = dead ] && break
+  i=$((i + 1))
+  sleep 1
+done
+[ "$st" = dead ] \
+  || fail "named Claude Code ($VERSION) on $HERDR_VER: the agent did not stop within 30s of /exit (agent state '$st')"
+pass "live Herdr exit: named Claude Code ($VERSION) on $HERDR_VER stops after fm-control's /exit sequence"
 
 [ "$CHECKED" -gt 0 ] || fail "FM_HERDR_SUBMIT_CONFIRM_LIVE=1 checked no harness"

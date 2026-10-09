@@ -1029,6 +1029,32 @@ not ok - mid-turn absolute cwd rail read 'pending', want empty
 
 The cursorless backends still defer: on a cursorless read (Herdr and Zellij) a full-pane capture of this version answers `unknown` because the status rail below the composer floor row is contiguous non-blank content the selector refuses to outrank, which is the strict posture and not this defect; and very narrow panes where the cwd rail starts in the left half of the row defer the same way.
 
+### 2026-10-09 Claude Code 2.1.296 named composer through Herdr
+
+Verified on 2026-10-09 on Linux against Claude Code 2.1.296 on Herdr 0.9.1, in an isolated lab session created by `bin/fm-herdr-lab.sh`.
+Claude draws a `--name` title into the composer's top rule, so every Claude worker, scout, and second mate that `bin/fm-spawn.sh` names `<role> · <id>` renders a titled top rule over its composer.
+The classifier proves that titled rule as the composer's top edge only when the title is ASCII-printable or the one-column middle dot `·` and its width matches the closing rule; any other glyph stays `unknown`.
+Without that proof the closing rule reads as an unmatched separator, and the screen-read composer verdict was `unknown` for an idle composer, a typed draft, and a cleared one alike, so `fm-control.sh exit` and `relaunch` refused the worker.
+A fresh state-mod report answers before the screen read, so the refusal appeared only when that report was stale or missing.
+A dim prompt suggestion still reads `empty`, and `/exit` typed with the slash-command list open below the composer reads `pending`.
+
+The live guard launches the fleet's named shape without the state mod, so the screen read is what it proves:
+
+```sh
+HERDR_LAB_HELPER=bin/fm-herdr-lab.sh FM_HERDR_SUBMIT_CONFIRM_LIVE=1 bash tests/fm-herdr-submit-confirm-live-e2e.test.sh
+```
+
+Observed output:
+
+```text
+ok - live Herdr submit confirm: Claude Code (2.1.296 (Claude Code)) on herdr 0.9.1 reports empty and renders the requested reply in isolated session fm-lab-herdr-submit-con-2320052-8563
+ok - live Herdr composer: named Claude Code (2.1.296 (Claude Code)) on herdr 0.9.1 reads idle as empty and a draft as pending
+ok - live Herdr exit: named Claude Code (2.1.296 (Claude Code)) on herdr 0.9.1 stops after fm-control's /exit sequence
+```
+
+The same named shape on `bin/fm-composer-lib.sh` without the middle-dot acceptance read `unknown` for idle, typed, and cleared composers, and the exit sequence refused before typing `/exit`.
+`test_composer_state_titled_claude_idle_and_ghost_are_empty` and `test_composer_state_titled_claude_slash_list_and_draft_are_pending` in `tests/fm-backend-herdr.test.sh` carry the captured worker and second-mate screens through `fm_backend_herdr_composer_state`, and `test_matrix_claude_titled_top_rule` in `tests/fm-composer-lib.test.sh` pins the width, glyph, and scrollback negatives under both locales.
+
 ## Steering-inbox doorbell
 
 The steering channel's one behavioral assumption - a real worker agent follows the constant self-describing doorbell line (list the inbox, read and act on its records in numeric order, then `mv` each into `handled/`) - was verified on 2026-08-23 against every installed verified harness, on tmux 3.6a, macOS arm64, on an isolated private socket, driving the REAL `bin/fm-send.sh` end to end (durable record plus doorbell, with one mid-wait re-ring playing the watcher's role).

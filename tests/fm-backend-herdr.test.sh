@@ -4120,6 +4120,78 @@ test_composer_state_popup_placeholder_fill_is_pending() {
   pass "fm_backend_herdr_composer_state: a slash-command popup's argument-hint placeholder still reads pending (the incident fix)"
 }
 
+# Claude Code 2.1.296's composer as Herdr 0.9.1's ANSI read returns it for a
+# session fm-spawn named: `--name 'worker · <id>'` draws that title into the
+# composer's TOP rule. Built from bytes captured live in an isolated lab (only
+# the rule width is narrowed), each row ending in the read's carriage return.
+herdr_claude_rule() {  # <columns> -> that many rule dashes
+  local n=$1 out=''
+  while [ "$n" -gt 0 ]; do out+='─'; n=$((n - 1)); done
+  printf '%s' "$out"
+}
+
+herdr_titled_claude_screen() {  # <title-with-padding> <composer-row> [below-row...]
+  local top=$1 row=$2 grey=$'\e[0m\e[38;2;136;136;136m' end=$'\e[0m\r' below
+  shift 2
+  printf '%s\n' $'\e[0m\e[38;2;153;153;153m✻\e[0m \e[0m\e[38;2;153;153;153mCooked for 2s · done 5:52 PM\e[0m\r' $'\r'
+  printf '%s\n' "$grey$top$end" "$row" "$grey$(herdr_claude_rule 63)$end"
+  for below in "$@"; do printf '%s\n' "$below"; done
+}
+
+# Width coupling: the closing rule is 63 columns, and each titled top below
+# (40 or 44 rule columns plus its padded title) must collapse to exactly 63.
+HERDR_CLAUDE_WORKER_TOP="$(herdr_claude_rule 40) worker · fm-lab-test ─"
+HERDR_CLAUDE_FOOTER=(
+  $'  \e[0m\e[38;2;153;153;153mOpus 5.5 | \e[0m\e[38;5;2m0%\e[0m\e[38;2;153;153;153m (0k/1000k) \e[0m\e[1m\e[38;5;2mSHARP\e[0m        \e[0m\e[38;2;153;153;153m◐ medium · /effort\e[0m\r'
+  $'  \e[0m\e[38;2;255;107;128m⏵⏵ bypass permissions on\e[0m\e[38;2;153;153;153m (shift+tab to cycle) · ← for agents\e[0m'
+)
+
+# The field defect: every idle Claude worker or secondmate fm-spawn names read
+# `unknown` on the screen path, because the middle dot in its title left the
+# titled top rule unproven, so fm-control.sh exit and relaunch refused it.
+test_composer_state_titled_claude_idle_and_ghost_are_empty() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/composer-titled-claude-empty"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  herdr_titled_claude_screen "$HERDR_CLAUDE_WORKER_TOP" $'❯\xc2\xa0\r' "${HERDR_CLAUDE_FOOTER[@]}" > "$resp/1.out"
+  herdr_titled_claude_screen "$(herdr_claude_rule 44) 2nd mate · fm-sm ─" $'❯\xc2\xa0\r' "${HERDR_CLAUDE_FOOTER[@]}" > "$resp/2.out"
+  # A prompt suggestion is drawn dim (SGR 2) after the glyph.
+  herdr_titled_claude_screen "$HERDR_CLAUDE_WORKER_TOP" $'❯\xc2\xa0\e[0m\e[2myes, continue\e[0m\r' "${HERDR_CLAUDE_FOOTER[@]}" > "$resp/3.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = empty ] || fail "an idle Claude worker composer under its titled top rule should read empty, got '$out'"
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = empty ] || fail "an idle Claude secondmate composer under its titled top rule should read empty, got '$out'"
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = empty ] || fail "a dim prompt suggestion in a titled Claude composer should read empty, got '$out'"
+  pass "fm_backend_herdr_composer_state: an idle titled Claude composer reads empty, with or without a dim suggestion"
+}
+
+# Typed text under the same titled rule must still refuse: the exit command
+# would concatenate onto it. That includes `/exit` itself with the 2.1.296
+# slash-command list open below the composer, whose selected row also leads
+# with the agent glyph.
+test_composer_state_titled_claude_slash_list_and_draft_are_pending() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/composer-titled-claude-pending"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  herdr_titled_claude_screen "$HERDR_CLAUDE_WORKER_TOP" $'❯\xc2\xa0\e[0m\e[38;2;177;185;249m/exit\e[0m\r' \
+    $'  \e[0m\e[38;2;177;185;249m❯ /\e[0m\e[1m\e[38;2;177;185;249mexit\e[0m\e[38;2;177;185;249m           \e[0m\e[1m\e[38;2;177;185;249mExit\e[0m\e[38;2;177;185;249m the CLI\e[0m\r' \
+    $'  \e[0m\e[38;2;153;153;153m  /context        Visualize current context usage as a colored grid\e[0m\r' \
+    $'  \e[0m\e[38;2;153;153;153m  /usage-credits  Configure usage credits or request them from your admin when you\e[0m\r' \
+    $'                   \e[0m\e[38;2;153;153;153mhit a limit\e[0m' > "$resp/1.out"
+  herdr_titled_claude_screen "$HERDR_CLAUDE_WORKER_TOP" $'❯\xc2\xa0my unsent draft\r' "${HERDR_CLAUDE_FOOTER[@]}" > "$resp/2.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = pending ] || fail "a titled Claude composer holding /exit with the slash-command list open should read pending, got '$out'"
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = pending ] || fail "a titled Claude composer holding a typed draft should read pending, got '$out'"
+  pass "fm_backend_herdr_composer_state: typed text in a titled Claude composer stays pending, including /exit with the slash-command list open"
+}
+
 test_composer_state_unknown_on_capture_failure() {
   local dir log resp fb out status
   dir="$TMP_ROOT/composer-capture-fail"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -6206,6 +6278,8 @@ test_composer_state_styled_placeholder_draft_is_pending
 test_composer_state_real_text_is_pending
 test_composer_state_grok_oversized_title_preserves_safe_verdicts
 test_composer_state_popup_placeholder_fill_is_pending
+test_composer_state_titled_claude_idle_and_ghost_are_empty
+test_composer_state_titled_claude_slash_list_and_draft_are_pending
 test_composer_state_unknown_on_capture_failure
 test_composer_state_inactive_session_fails_fast_without_server_autostart
 test_composer_state_piped_reader_does_not_hang
