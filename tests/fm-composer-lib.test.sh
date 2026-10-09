@@ -1141,6 +1141,36 @@ test_background_exit_picker_stays_pending_and_blocks_retry() {
   pass "the Claude background-task exit picker stays pending and receives no confirming Enter"
 }
 
+# The Claude slash-command completion menu, recorded 2026-10-09 from a live
+# Claude Code pane after a swallowed Enter left /exit typed with the menu
+# open: on a short pane the menu fills the viewport, the composer row is
+# pushed out of the capture, and the cursorless scan read the menu rows
+# themselves as pending typed text - refusing every worker exit.
+test_slash_completion_menu_is_a_blocking_dialog() {
+  local screen out rc
+  screen=$(printf '%s\n' \
+    '  ❯ /exit                                         Exit the CLI' \
+    '    /context                                      Visualize current context usage as a colored grid' \
+    '    /effort                                       Set effort level for model usage')
+  out=$(fm_composer_blocking_dialog "$screen"); rc=$?
+  [ "$rc" -eq 0 ] || fail "the slash menu should match"
+  [ "$out" = 'Claude slash-command completion menu' ] || fail "dialog name was '$out'"
+  screen=$(printf '%s\n' \
+    '    /export                                       Export the current conversation to a file' \
+    '    /no-mistakes                                  Validate your code changes through the n' \
+    '    /code-review                                  Review the current diff, or a PR number/')
+  out=$(fm_composer_blocking_dialog "$screen"); rc=$?
+  [ "$rc" -eq 0 ] || fail "a menu whose highlighted row scrolled off should still match"
+  out=$(fm_composer_blocking_dialog "$(printf '%s\n' 'x /exit now' 'y /context here')"); rc=$?
+  [ "$rc" -eq 1 ] || fail "ASCII word-then-slash prose rows must not match"
+  [ -z "$out" ] || fail "a miss must print nothing, got '$out'"
+  out=$(fm_composer_blocking_dialog "$(printf '%s\n' '  /usr/bin/env bash' '  /home/doug/x  something')"); rc=$?
+  [ "$rc" -eq 1 ] || fail "paths with single-space tails must not match"
+  out=$(fm_composer_blocking_dialog 'run /exit and see'); rc=$?
+  [ "$rc" -eq 1 ] || fail "a single inline slash row must not match"
+  pass "the Claude slash-command completion menu is a named blocking dialog"
+}
+
 # The picker's own text, shown the way a worker pane shows it when it prints
 # this repository's diff, verification note, or a test fixture: quoted above a
 # normal composer. No picker is open, so the next Enter confirms nothing.
@@ -1232,6 +1262,7 @@ test_quoted_exit_picker_text_is_not_a_dialog() {
 }
 
 test_background_exit_picker_stays_pending_and_blocks_retry
+test_slash_completion_menu_is_a_blocking_dialog
 test_dialog_heading_and_footer_must_be_the_recorded_lines
 test_dialog_note_skips_the_match_when_no_sink_is_set
 test_quoted_exit_picker_text_is_not_a_dialog

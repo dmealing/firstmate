@@ -432,6 +432,32 @@ wait_rendered() {  # <ere> <timeout>
   done
 }
 
+# dismiss_slash_completion_menu: a Claude slash-command completion menu left
+# open (typically by our own exit command's first swallowed Enter) makes the
+# composer read as pending text and refuses every lifecycle retry (2026-10-09:
+# every Claude-on-herdr worker exit). Close it with Escape, clear the leftover
+# line with C-u when the composer still reads pending, and re-verify; the
+# caller's empty-composer gate then proceeds or refuses on the fresh reading.
+# No Enter is ever sent while the menu is on screen, because Enter confirms
+# the highlighted row. Claude defines no interrupt clear key of its own (it
+# clears its own composer after an interrupt), but the leftover line here is
+# ours, so C-u - which every pane backend can deliver - is the right eraser.
+dismiss_slash_completion_menu() {
+  local gap
+  gap=$(fm_control_interrupt_press_gap "$HARNESS")
+  fm_backend_send_key "$BACKEND" "$T" Escape "$LABEL" \
+    || die "task $ID shows the Claude slash-command completion menu, and Escape did not reach it; nothing else was typed. Close it with Escape, never Enter, then retry '$VERB'"
+  sleep "$gap"
+  composer_state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) \
+    || composer_state=unknown
+  [ "$composer_state" = pending ] || return 0
+  fm_backend_send_key "$BACKEND" "$T" C-u "$LABEL" \
+    || die "task $ID's composer still holds text after its slash-command completion menu was closed, and C-u did not reach it; nothing else was typed. Clear the composer, then retry '$VERB'"
+  sleep "$gap"
+  composer_state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) \
+    || composer_state=unknown
+}
+
 # dismiss_interrupt_hazard <key> <ere>: after the presses, close a surface a
 # mistimed press opened (Devin's revert picker) with one more key, before
 # anything else can be typed into it. Sets INTERRUPT_HAZARD.
@@ -710,7 +736,14 @@ do_exit() {
   # rather than a function that subshell sourced.
   if [ -s "${FM_COMPOSER_DIALOG_SINK:-}" ]; then
     dialog=$(cat "$FM_COMPOSER_DIALOG_SINK")
-    refuse_blocking_prompt "$dialog"
+    case "$dialog" in
+      'Claude slash-command completion menu')
+        dismiss_slash_completion_menu
+        ;;
+      *)
+        refuse_blocking_prompt "$dialog"
+        ;;
+    esac
   fi
   case "$composer_state" in
     empty) ;;

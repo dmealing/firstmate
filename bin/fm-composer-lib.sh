@@ -1693,6 +1693,35 @@ fm_composer_blocking_dialog() {  # <screen> -> dialog name
     printf '%s' 'Claude background-task exit picker'
     return 0
   fi
+  # Claude Code's slash-command completion menu (verified 2.1.x): typing a
+  # /-prefix opens an inline menu above the composer - a highlighted row in
+  # the shape "  │/ /exit   Exit the CLI" plus one row per candidate in the
+  # shape "  /code-review   review the diff" (command, wide gap, description).
+  # On a short pane the menu fills the viewport and pushes the composer row
+  # out of the capture entirely, which made the cursorless scan read the menu
+  # rows themselves as a pending composer (2026-10-09: every Claude-on-herdr
+  # worker exit was refused as "unsent text"). Recognizing the menu lets the
+  # control plane close it with Escape instead of guessing. A highlighted row
+  # plus two menu rows, or a run of three menu rows, names the dialog; plain
+  # paths like "/usr/bin/env bash" cannot match because a menu row needs the
+  # wide gap before its description.
+  if printf '%s\n' "$screen" | fm_composer_strip_ansi | LC_ALL=C awk '
+    {
+      row = $0
+      sub(/\r$/, "", row)
+      if (row ~ /^ {0,4}[\200-\377][\200-\377]?[\200-\377]? ?\/[!A-Za-z0-9]/) { selected++; run++; next }
+      if (row ~ /^ {0,4}\/[!A-Za-z0-9][A-Za-z0-9:_-]*( {2,}[^ ]|$)/) { menu++; run++; next }
+      if (run > maxrun) maxrun = run
+      run = 0
+    }
+    END {
+      if (run > maxrun) maxrun = run
+      exit !((selected >= 1 && menu >= 1) || maxrun >= 2 || menu >= 4)
+    }
+  '; then
+    printf '%s' 'Claude slash-command completion menu'
+    return 0
+  fi
   return 1
 }
 
