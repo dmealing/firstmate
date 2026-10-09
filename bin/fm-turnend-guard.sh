@@ -171,6 +171,8 @@ fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 # --- the actual predicate ----------------------------------------------------
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-quota-breaker.sh
+. "$SCRIPT_DIR/fm-quota-breaker.sh"
 if [ "$CLAUDE_MODE" -eq 1 ]; then
   # shellcheck source=bin/fm-session-lock-lib.sh
   . "$SCRIPT_DIR/fm-session-lock-lib.sh"
@@ -503,6 +505,22 @@ if autoarm_owns_recovery; then
   fi
   exit 0
 fi
+
+# Quota circuit breaker (bin/fm-quota-breaker.sh): while the configured
+# provider's effective availability is at or below the floor, every forced
+# continuation this guard could demand would be billed to an exhausted plan,
+# so the block would only manufacture usage-limit failures. Allow the stop
+# instead; the auto-arm's suppressed wake and this home's other durable wakes
+# re-surface at the next Stop after the quota window resets. Fails CLOSED on
+# every quota-axi error, so a broken breaker never weakens this guard.
+if fm_quota_breaker_open; then
+  fm_quota_breaker_mark "$STATE"
+  if [ "$CLAUDE_MODE" -eq 1 ]; then
+    printf '{"systemMessage":"FIRSTMATE QUOTA BREAKER: %s. Allowing this stop; durable wakes re-surface after the quota window resets."}\n' "$FM_QUOTA_BREAKER_DETAIL"
+  fi
+  exit 0
+fi
+fm_quota_breaker_unmark "$STATE"
 
 # The auto-arm genuinely failed to establish: consume the bounded re-block
 # budget before considering the verified one-time attended fail-open.

@@ -616,6 +616,19 @@ The flag is a home-local supervision-noise preference and is not inherited by se
 
 [`architecture.md`](architecture.md) owns the wait-evidence contract and which records may take the ladder away; `bin/fm-watch.sh`'s `wedge_wait_evidence` owns the exact derivation and its fail-closed boundaries.
 
+## Quota circuit breaker (config/quota-breaker.env)
+
+`bin/fm-quota-breaker.sh` is the backpressure the 2026-10-09 incident proved was missing: a fleet kept translating watcher wakes into model turns while the plan behind those turns was already exhausted, and a freshly reset five-hour window was consumed in minutes straight through `[Usage limit reached]` injections. While the configured quota provider's effective availability sits at or below the floor, `bin/fm-claude-stop-autoarm.sh` suppresses the wake translation (recording outcome `quota-suppressed`, leaving the wake durable for the next Stop after the window resets) and `bin/fm-turnend-guard.sh` allows the stop instead of demanding a continuation no plan can pay for.
+
+Unlike the supervision-noise flags above it is ON by default, because the failure it prevents is unattended spend rather than a triage preference; a home opts out with `FM_QUOTA_BREAKER=off`. The optional local, gitignored `config/quota-breaker.env` (sourced by the lib when `CONFIG` names a real directory) or the environment may set:
+
+- `FM_QUOTA_BREAKER` - `on` (default) or `off`.
+- `FM_QUOTA_BREAKER_PROVIDER` - quota-axi provider id, default `claude`.
+- `FM_QUOTA_BREAKER_FLOOR` - integer percent remaining at or below which the breaker opens, default `2`.
+- `FM_QUOTA_BREAKER_MAX_AGE` - quota-axi `--max-age` cache bound, default `5m`, so a fleet of homes shares one vendor read per bound instead of one read per Stop.
+
+The breaker fails CLOSED - wake allowed - on every error path (quota-axi or jq missing, unreadable output, unknown provider, parse failure, invalid floor), because supervision continuity outranks the breaker; it only ever suppresses a wake it can positively prove is unpayable. Each suppression appends a bounded line to `state/.quota-breaker` for observability, and the marker is removed on the first closed decision. `bin/fm-quota-breaker.sh` owns the exact predicate and its fail-closed boundaries.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.

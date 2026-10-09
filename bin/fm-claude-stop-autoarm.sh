@@ -159,6 +159,8 @@ esac
 . "$SCRIPT_DIR/fm-hook-host-lib.sh"
 # shellcheck source=bin/fm-supervision-engine-lib.sh
 . "$SCRIPT_DIR/fm-supervision-engine-lib.sh"
+# shellcheck source=bin/fm-quota-breaker.sh
+. "$SCRIPT_DIR/fm-quota-breaker.sh"
 
 # fm-watch.sh touches the liveness beacon once per cycle, immediately before
 # its terminal wait, so a healthy watcher's beacon can legitimately age up to
@@ -515,6 +517,21 @@ if [ "$ACTIONABLE" -eq 1 ]; then
     [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
     exit 0
   fi
+  # Quota circuit breaker: while the configured provider's effective
+  # availability is at or below the floor, translating this wake into another
+  # turn would only feed an exhausted plan (2026-10-09: a fleet re-fed a fresh
+  # Pro five-hour window at ~8M tokens/minute straight through its limits).
+  # The wake is NOT consumed - it stays durable in fm-wake-lib.sh, so the next
+  # Stop after the quota window resets re-arms and re-surfaces it untouched.
+  # fm_quota_breaker_open fails CLOSED on every error, so supervision
+  # continuity is never lost to a quota-axi outage.
+  if fm_quota_breaker_open; then
+    autoarm_record quota-suppressed
+    fm_quota_breaker_mark "$STATE"
+    [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
+    exit 0
+  fi
+  fm_quota_breaker_unmark "$STATE"
   # The host owns its own successors and stops its cycle before handing back.
   if [ "$HOST_MODE" -eq 0 ]; then
     start_handling_successor "$CLOSED_ARM_PID" || true
