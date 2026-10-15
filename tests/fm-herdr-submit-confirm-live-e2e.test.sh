@@ -18,6 +18,12 @@
 # fm-control.sh's exit sequence (composer proof, then `/exit` through the
 # slash-command list) stops the agent.
 #
+# A third pane launches Claude the way fm-spawn launches a second mate
+# (`--name '2nd mate · <id>'` with Remote Control at startup) and requires the
+# submit path to prove and submit a steer that wraps onto a second composer row
+# under that titled rule, then a typed /exit whose slash-command menu marks its
+# selected entry with the agent glyph (Claude Code 2.1.296 and later).
+#
 # Run explicitly with FM_HERDR_SUBMIT_CONFIRM_LIVE=1 after a Herdr or Claude
 # upgrade, and before trusting a refreshed docs/verification/runtime-backends.md
 # "Herdr submit confirmation" entry.
@@ -272,5 +278,82 @@ done
 [ "$st" = dead ] \
   || fail "named Claude Code ($VERSION) on $HERDR_VER: the agent did not stop within 30s of /exit (agent state '$st')"
 pass "live Herdr exit: named Claude Code ($VERSION) on $HERDR_VER stops after fm-control's /exit sequence"
+
+# The second-mate launch shape. Firstmate task variables are dropped so the lab
+# agent can never be pointed at an operator's real steering inbox.
+WS_JSON=$(lab workspace create --cwd "$ROOT" --label fm-smlive --no-focus) \
+  || fail "could not create the isolated second-mate workspace"
+PANE=$(printf '%s' "$WS_JSON" | jq -er '.result.root_pane.pane_id') \
+  || fail "workspace create did not return a pane id for the second-mate pane"
+TARGET="$SESSION:$PANE"
+lab pane run "$PANE" "env -u FM_TASK_ID -u FM_TASK_INBOX -u FM_HOME CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"remoteControlAtStartup\":true}' --name '2nd mate · fm-smlive-$$'" >/dev/null \
+  || fail "could not launch a second-mate-shaped Claude Code ($VERSION) in the isolated Herdr pane"
+wait_lab_idle "$PANE" "second-mate Claude Code"
+composer_reaches empty \
+  || fail "second-mate Claude Code ($VERSION) on $HERDR_VER: an idle composer under its titled rule must read empty, got '$state'"
+
+# The steer must really wrap, or this check proves nothing about wrapping.
+SM_TOKEN="FMHERDRSMPONG$$_$RANDOM"
+SM_END="FMHERDRSMEND$$"
+long="Reply with exactly $SM_TOKEN and nothing else. This request is padded on purpose so that it wraps onto a second composer row under the titled rule of a named second-mate session. $SM_END"
+lab pane send-text "$PANE" "$long" >/dev/null || fail "could not type the wrapping steer"
+sleep 1
+screen=$(lab pane read "$PANE" --source visible 2>/dev/null || true)
+first_row=$(printf '%s\n' "$screen" | grep -n -F "$SM_TOKEN" | tail -1 | cut -d: -f1)
+end_row=$(printf '%s\n' "$screen" | grep -n -F "$SM_END" | tail -1 | cut -d: -f1)
+[ -n "$first_row" ] && [ -n "$end_row" ] && [ "$end_row" -gt "$first_row" ] \
+  || fail "second-mate Claude Code ($VERSION) on $HERDR_VER: the padded steer did not wrap onto a second composer row (rows '$first_row' and '$end_row')"
+# Claude deletes one wrapped row per Ctrl+U, so this is the adapter's verified
+# multi-press clear, the same one a refused payload proof runs.
+fm_backend_herdr_composer_clear "$TARGET" "$long" \
+  || fail "second-mate Claude Code ($VERSION) on $HERDR_VER: the wrapped steer never cleared back to an empty composer (last read '$(fm_backend_herdr_composer_state "$TARGET")')"
+verdict=$(fm_backend_herdr_send_text_submit "$TARGET" "$long" 3 0.4 0.4) \
+  || fail "send_text_submit failed to run the wrapping steer against second-mate Claude Code ($VERSION) on $HERDR_VER"
+[ "$verdict" = empty ] \
+  || fail "second-mate Claude Code ($VERSION) on $HERDR_VER: a steer wrapped under the titled rule must confirm empty, got '$verdict'"
+landed=0
+i=0
+while [ "$i" -lt 45 ]; do
+  screen=$(lab pane read "$PANE" --source recent --lines 200 2>/dev/null || true)
+  occurrences=$(printf '%s\n' "$screen" | grep -F -c "$SM_TOKEN" || true)
+  if [ "$occurrences" -ge 2 ]; then
+    landed=1
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
+[ "$landed" = 1 ] \
+  || fail "second-mate Claude Code ($VERSION) on $HERDR_VER: the wrapped steer reported '$verdict' but the expected reply never rendered"
+pass "live Herdr submit confirm: second-mate Claude Code ($VERSION) on $HERDR_VER proves and submits a steer wrapped under its titled rule"
+
+wait_lab_idle "$PANE" "second-mate Claude Code"
+composer_reaches empty \
+  || fail "second-mate Claude Code ($VERSION) on $HERDR_VER: the composer did not settle empty after the reply, got '$state'"
+lab pane send-text "$PANE" "/exit" >/dev/null || fail "could not type /exit to inspect the slash-command menu"
+sleep 1
+screen=$(lab pane read "$PANE" --source visible 2>/dev/null || true)
+menu_pick=no
+if printf '%s\n' "$screen" | grep -E -q '^[[:space:]]+❯ /exit[[:space:]]'; then
+  menu_pick=yes
+fi
+lab pane send-keys "$PANE" ctrl+u >/dev/null || fail "could not clear the inspected /exit"
+composer_reaches empty \
+  || fail "second-mate Claude Code ($VERSION) on $HERDR_VER: a cleared /exit must read empty again, got '$state'"
+verdict=$(fm_backend_herdr_send_text_submit "$TARGET" '/exit' 3 0.5 1.2) \
+  || fail "send_text_submit failed to run /exit against second-mate Claude Code ($VERSION) on $HERDR_VER"
+[ "$verdict" != send-failed ] \
+  || fail "second-mate Claude Code ($VERSION) on $HERDR_VER: a typed /exit above its slash-command menu (menu pick rendered: $menu_pick) was judged unsent and cleared"
+st=''
+i=0
+while [ "$i" -lt 30 ]; do
+  st=$(fm_backend_herdr_agent_state "$TARGET")
+  [ "$st" = dead ] && break
+  i=$((i + 1))
+  sleep 1
+done
+[ "$st" = dead ] \
+  || fail "second-mate Claude Code ($VERSION) on $HERDR_VER: the agent did not stop within 30s of /exit (agent state '$st')"
+pass "live Herdr exit: second-mate Claude Code ($VERSION) on $HERDR_VER stops after /exit (slash-menu pick rendered: $menu_pick)"
 
 [ "$CHECKED" -gt 0 ] || fail "FM_HERDR_SUBMIT_CONFIRM_LIVE=1 checked no harness"

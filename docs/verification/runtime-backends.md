@@ -1055,6 +1055,47 @@ ok - live Herdr exit: named Claude Code (2.1.296 (Claude Code)) on herdr 0.9.1 s
 The same named shape on `bin/fm-composer-lib.sh` without the middle-dot acceptance read `unknown` for idle, typed, and cleared composers, and the exit sequence refused before typing `/exit`.
 `test_composer_state_titled_claude_idle_and_ghost_are_empty` and `test_composer_state_titled_claude_slash_list_and_draft_are_pending` in `tests/fm-backend-herdr.test.sh` carry the captured worker and second-mate screens through `fm_backend_herdr_composer_state`, and `test_matrix_claude_titled_top_rule` in `tests/fm-composer-lib.test.sh` pins the width, glyph, and scrollback negatives under both locales.
 
+### 2026-10-14 Claude Code 2.1.300 second-mate composer through Herdr
+
+Verified on 2026-10-14 on Linux against Claude Code 2.1.300 on Herdr 0.9.1, in isolated lab sessions created by `bin/fm-herdr-lab.sh`, with the second-mate launch shape: the `2nd mate · <id>` session name and `/remote-control` active at startup.
+Two screen shapes broke the cursorless composer read for every Claude second mate, so `bin/fm-control.sh exit`, and `bin/fm-secondmate-restart.sh` through it, could not stop an idle mate, and every `bin/fm-send.sh` doorbell failed.
+
+- Claude Code 2.1.296 and later mark the selected slash-command menu entry with `❯`, the composer's own glyph, on a row below the composer's closing rule, sometimes with a notice row between that rule and the menu.
+  The bottom-most shape won, so the payload proof for a typed `/exit` read `/exit Exit the CLI /context ...`, judged the command unsent, cleared it, and returned `send-failed`.
+- The doorbell line wraps onto a second composer row, and a titled composer was accepted only when its closing rule sat directly under the glyph row, so the wrapped doorbell read as unproven and was cleared.
+
+The classifier now skips a `❯` row only when it lists a slash command inside the unbroken run of rows below a composer's plain closing rule, and that one-row composer holds a slash command typed with the same glyph; a titled composer's wrapped rows extend down to its closing rule.
+Claude deletes one wrapped row per Ctrl+U, so a cleared wrapped draft still reads `pending` until the adapter's repeated clear finishes.
+
+In the same lab, the unfixed library reproduced both failures against a named second mate that `bin/fm-control.sh` and `bin/fm-send.sh` targeted through a lab home:
+
+```text
+error: the exit command could not be sent to task smexit on herdr
+fm-send: doorbell did not reach fm-lab-fm-herdr-exit-do-3339533-7869:w6:p1; the steer is durably recorded at <lab-home>/state/smsend.inbox/002.msg and the watcher will re-ring
+```
+
+With the fix, the same commands stopped the mate (`stopped smexit harness=claude backend=herdr ...`) and the mate listed its inbox, acted on each record, and moved it into `handled/`.
+The live guard adds the second-mate shape as its last two scenarios:
+
+```sh
+HERDR_LAB_HELPER=bin/fm-herdr-lab.sh FM_HERDR_SUBMIT_CONFIRM_LIVE=1 bash tests/fm-herdr-submit-confirm-live-e2e.test.sh
+```
+
+Observed output:
+
+```text
+ok - live Herdr submit confirm: Claude Code (2.1.300 (Claude Code)) on herdr 0.9.1 reports empty and renders the requested reply in isolated session fm-lab-herdr-submit-con-1737881-11404
+ok - live Herdr submit confirm: Claude Code (2.1.300 (Claude Code)) on herdr 0.9.1 submits a U+2063 away-supervisor payload whose read-back drops the mark
+ok - live Herdr submit confirm: Claude Code (2.1.300 (Claude Code)) on herdr 0.9.1 proves and submits a typed /exit behind its command popup
+ok - live Herdr composer: named Claude Code (2.1.300 (Claude Code)) on herdr 0.9.1 reads idle as empty and a draft as pending
+ok - live Herdr exit: named Claude Code (2.1.300 (Claude Code)) on herdr 0.9.1 stops after fm-control's /exit sequence
+ok - live Herdr submit confirm: second-mate Claude Code (2.1.300 (Claude Code)) on herdr 0.9.1 proves and submits a steer wrapped under its titled rule
+ok - live Herdr exit: second-mate Claude Code (2.1.300 (Claude Code)) on herdr 0.9.1 stops after /exit (slash-menu pick rendered: yes)
+```
+
+Run from inside a Firstmate worker, unset `FM_TASK_ID`, `FM_TASK_INBOX`, and `FM_HOME` first, so the lab agents never inherit a real steering inbox.
+`test_send_text_submit_claude_2_1_300_slash_menu_exit_is_submitted` and `test_send_text_submit_claude_titled_wrapped_doorbell_is_submitted` in `tests/fm-backend-herdr.test.sh` carry the captured screens through `fm_backend_herdr_send_text_submit`, and `test_matrix_claude_slash_menu_pick_and_wrapped_titled_composer` in `tests/fm-composer-lib.test.sh` pins the notice-row, ordinary-draft, and gapped-wrap negatives.
+
 ## Steering-inbox doorbell
 
 The steering channel's one behavioral assumption - a real worker agent follows the constant self-describing doorbell line (list the inbox, read and act on its records in numeric order, then `mv` each into `handled/`) - was verified on 2026-08-23 against every installed verified harness, on tmux 3.6a, macOS arm64, on an isolated private socket, driving the REAL `bin/fm-send.sh` end to end (durable record plus doorbell, with one mid-wait re-ring playing the watcher's role).
@@ -1474,7 +1515,8 @@ The pre-Enter payload proof then judged the typed command unsent, pressed Ctrl+U
 
 The fix captures the FULL VISIBLE VIEWPORT for every herdr adapter composer read (`pane read --source visible [--format ansi]`, `fm_backend_herdr_composer_state` and `fm_backend_herdr_composer_content`): the composer is by definition inside the viewport, and the viewport is the one bound that always contains it.
 The shared inbox pending-line confirmation read (`bin/fm-task-inbox-lib.sh`) stays a bounded tail on every backend, herdr included; its payloads are task lines, not slash commands, so the popup shape does not arise there.
-The popup rows sit below the composer's closing rule, which is a structural edge row, so the shared classifier still selects only the composer and the menu rows never read as typed text.
+The popup rows sit below the composer's closing rule, which is a structural edge row; on 2.1.283 none of them carried a composer glyph, so the shared classifier selected only the composer and the menu rows never read as typed text.
+Claude Code 2.1.296 and later mark the selected menu entry with the composer's own `❯` glyph, which the classifier must skip explicitly - see [the 2026-10-14 second-mate entry](#2026-10-14-claude-code-21300-second-mate-composer-through-herdr).
 Verified live in the lab: with the popup up the state read answers `pending` (previously `empty`) and the payload proof returns `/exit` (previously empty), the submit presses Enter, and the Claude process exits, leaving the shell prompt.
 Growing the window only adds rows above the composer, so the bottom-most-shape selection, the footer zone, and every previously passing verdict are unchanged.
 

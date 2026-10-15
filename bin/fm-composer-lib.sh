@@ -61,7 +61,9 @@
 #                A named Claude Code session burns its title into the TOP rule
 #                (`──── name ─`); _fm_composer_bare_rule_sandwich spares that
 #                shape and nothing like it. Grok's titled BOTTOM border is a
-#                different recognizer; never merge the two.
+#                different recognizer; never merge the two. The `❯` pick of
+#                Claude's slash-command menu under that composer is never a
+#                candidate (_fm_composer_rule_closes_slash_composer).
 #                A bare composer's WRAP region (typed input continuing on the
 #                rows beneath the glyph row) is bounded by blank rows, by
 #                structural edges, and by the FURNITURE rows a harness draws
@@ -837,6 +839,45 @@ _fm_composer_titled_rule_row() {  # <trimmed-row> <plain-rule-spaces>
   [ "$spaces" = "$expected" ]
 }
 
+# _fm_composer_slash_command_glyph_var: when <trimmed-row> leads with an agent
+# glyph followed by a slash command, store that glyph in <varname> and return
+# 0; otherwise return 1.
+_fm_composer_slash_command_glyph_var() {  # <varname> <trimmed-row>
+  local __fmsc_glyph='' __fmsc_body
+  fm_composer_leading_agent_glyph_var __fmsc_glyph "$2" || return 1
+  __fmsc_body=${2#"$__fmsc_glyph"}
+  fm_composer_normalize_trim_var __fmsc_body
+  case "$__fmsc_body" in /*) ;; *) return 1 ;; esac
+  printf -v "$1" '%s' "$__fmsc_glyph"
+}
+
+# _fm_composer_rule_closes_slash_composer: 0 when strict rule <close> is the
+# closing rule of a composer holding a slash command: <above1>, the row
+# directly above it, leads with an agent glyph and a slash command, and
+# <above2>, the row above that, is the composer's opening rule (strict, or
+# titled to the closing rule's width). Stores that glyph in
+# FM_COMPOSER_SLASH_GLYPH.
+#
+# Claude Code 2.1.296 and later draw the slash-command menu below that closing
+# rule and mark its selected entry with the same `❯` the composer leads with,
+# under any notice rows Claude prints there. The cursorless bottom-most rule
+# took that entry for the composer and read the menu as the typed text, so the
+# payload proof judged a typed `/exit` unsent, cleared it, and fm-control exit
+# could not stop an idle Claude (verified live on Claude Code 2.1.300 under
+# Herdr 0.9.1, docs/verification/runtime-backends.md). The scan therefore
+# skips a row leading with the same glyph and a slash command anywhere in the
+# contiguous non-blank run below such a closing rule. Skipping it can only
+# select the composer above, which holds that slash command, so the verdict
+# moves toward pending and never toward `empty`.
+_fm_composer_rule_closes_slash_composer() {  # <close> <above1> <above2>
+  FM_COMPOSER_SLASH_GLYPH=
+  _fm_composer_pi_separator_row "$1" || return 1
+  _fm_composer_slash_command_glyph_var FM_COMPOSER_SLASH_GLYPH "$2" || return 1
+  _fm_composer_pi_separator_row "$3" \
+    || _fm_composer_titled_rule_row "$3" "${1//─/ }" \
+    || { FM_COMPOSER_SLASH_GLYPH=; return 1; }
+}
+
 # Row-scan results are returned through FM_COMPOSER_SCAN_* globals (bash 3.2
 # has no nameref); they are internal to this owner.
 _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
@@ -874,7 +915,7 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
   FM_COMPOSER_SCAN_LEFTBAR_GLYPH_ROW=-1
   FM_COMPOSER_SCAN_LEFTBAR_GLYPH=
   local leftbar_start=-1 pi_open=-1 pi_lines=0 pi_max
-  local probe row_glyph row_glyph_row
+  local probe row_glyph row_glyph_row above1='' above2='' slash_menu_glyph=''
   local box_glyph_row=-1 box_glyph='' pi_glyph_row=-1 pi_glyph=''
   pi_max=$FM_COMPOSER_PI_MAX_LINES
   case "$pi_max" in ''|*[!0-9]*|0) pi_max=8 ;; esac
@@ -921,6 +962,10 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
     # earlier transcript rule can never outrank the live bottom composer pair.
     if _fm_composer_pi_separator_row "$trimmed"; then
       FM_COMPOSER_SCAN_PI_LAST_SEPARATOR=$row
+      slash_menu_glyph=
+      if _fm_composer_rule_closes_slash_composer "$trimmed" "$above1" "$above2"; then
+        slash_menu_glyph=$FM_COMPOSER_SLASH_GLYPH
+      fi
       if [ "$pi_open" -ge 0 ]; then
         FM_COMPOSER_SCAN_PI_PAIR_FOUND=1
         FM_COMPOSER_SCAN_PI_OPEN=$pi_open
@@ -938,6 +983,7 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
       pi_glyph_row=-1
       pi_glyph=''
     else
+      [ -n "$trimmed" ] || slash_menu_glyph=
       if [ "$pi_open" -ge 0 ]; then
         pi_lines=$((pi_lines + 1))
         if [ "$pi_glyph_row" -lt 0 ] && [ "$row_glyph_row" -ge 0 ]; then
@@ -969,11 +1015,16 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
     # shell glyphs are deliberately not candidates (dead-shell rule). Keep
     # lower shell prompts as staleness evidence for cursorless selection.
     # Pi's cost footer can open with `$0.000`; that is furniture, not a prompt.
+    # Claude's slash-command menu pick leads with the agent glyph too, and is
+    # never a candidate (_fm_composer_rule_closes_slash_composer).
     if [ "$top" -lt 0 ] && fm_composer_leading_shell_glyph_var glyph "$trimmed" \
        && ! _fm_composer_row_is_pi_status "$trimmed"; then
       FM_COMPOSER_SCAN_SHELL_ROW=$row
     elif fm_composer_leading_agent_glyph_var glyph "$trimmed"; then
-      FM_COMPOSER_SCAN_BARE_ROW=$row
+      if [ "$glyph" != "$slash_menu_glyph" ] \
+         || ! _fm_composer_slash_command_glyph_var glyph "$trimmed"; then
+        FM_COMPOSER_SCAN_BARE_ROW=$row
+      fi
     fi
     # Cursor safety: a cursor sitting on a structural edge row is never an
     # input row.
@@ -1095,6 +1146,8 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
         *) valid=0 ;;
       esac
     fi
+    above2=$above1
+    above1=$trimmed
     row=$((row + 1))
   done <<EOF
 $pane
@@ -1692,19 +1745,25 @@ _fm_composer_locate_footer_zone() {  # <plain>
 
 # _fm_composer_bare_rule_sandwich: 0 when bare agent-glyph <row> sits in its
 # own titled composer: a titled rule directly above it and the screen's only
-# unmatched separator directly below it, which is that composer's closing rule.
+# unmatched separator below it, which is that composer's closing rule. Rows
+# between the glyph row and that rule must be the composer's wrapped input
+# (_fm_composer_wrap_region_ok): a doorbell line wider than the pane wraps
+# there, and requiring the rule on the very next row read every wrapped named
+# composer `unknown`, so the Herdr payload proof cleared each typed doorbell.
 #
 # The cursorless staleness rule reads an unmatched separator BELOW a candidate
 # as proof the candidate is scrollback. A titled top rule never opens the
 # separator pair, so the composer's own closing rule becomes that unmatched
 # separator and a genuinely idle composer read `unknown`. Adjacency on BOTH
 # edges keeps the staleness rule intact everywhere else: a glyph stranded in
-# scrollback has transcript rows, not its own rules, around it.
+# scrollback has transcript rows, not its own rules, around it, and a blank or
+# structural row between it and the rule breaks the wrap proof.
 _fm_composer_bare_rule_sandwich() {  # <plain-screen> <row>
-  local plain=$1 row=$2 above below
+  local plain=$1 row=$2 close=$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR above below
   [ "$row" -ge 1 ] || return 1
-  [ "$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR" -eq "$((row + 1))" ] || return 1
-  below=$(_fm_composer_screen_row "$((row + 1))" "$plain")
+  [ "$close" -gt "$row" ] || return 1
+  _fm_composer_wrap_region_ok "$plain" "$row" "$((close - 1))" || return 1
+  below=$(_fm_composer_screen_row "$close" "$plain")
   fm_composer_normalize_trim_var below
   _fm_composer_pi_separator_row "$below" || return 1
   above=$(_fm_composer_screen_row "$((row - 1))" "$plain")
