@@ -76,6 +76,11 @@ case "${1:-}" in
         ". '"*"'") staged=${payload#". '"}; staged=${staged%"'"}; [ ! -f "$staged" ] || payload=$(cat "$staged") ;;
       esac
       printf '%s\n' "$payload" >> "$D/literal"
+      if [ -n "${FM_FAKE_LOCK_PROBE:-}" ]; then
+        held=free
+        [ ! -e "$FM_FAKE_LOCK_PROBE" ] || held=held
+        printf '%s\n' "$held" >> "$D/lock-probe"
+      fi
       case "$payload" in
         /exit|/quit)
           printf 'zsh' > "$D/command"
@@ -248,6 +253,7 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_TRACE_RELEASE="${FM_FAKE_TRACE_RELEASE:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
+    FM_FAKE_LOCK_PROBE="${FM_FAKE_LOCK_PROBE:-}" \
     "$CONTROL" "$@" 2>&1
 }
 
@@ -1158,6 +1164,86 @@ test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop() {
   [ "$(meta_field "$dir" sm7 harness)" = claude ] \
     || fail "a refused relaunch must leave the durable record on the recorded harness"
   pass "fm-control relaunch: an adapter unverified for this task kind refuses before the agent is stopped"
+}
+
+# add_relaunch_secondmate <case-dir> <id>: a live claude secondmate whose
+# configured pin relaunches it onto codex.
+add_relaunch_secondmate() {
+  local dir=$1 id=$2 home="$1/home"
+  mkdir -p "$home/config" "$home/data/$id"
+  printf 'codex\n' > "$home/config/secondmate-harness"
+  printf '# secondmate brief\n' > "$home/data/$id/brief.md"
+  fm_git_worktree "$dir/proj" "$dir/smhome" sm-branch
+  mkdir -p "$dir/smhome/state" "$dir/smhome/data" "$dir/smhome/bin"
+  printf '%s\n' "$id" > "$dir/smhome/.fm-secondmate-home"
+  printf '# agents\n' > "$dir/smhome/AGENTS.md"
+  {
+    echo "window=fmses:fm-$id"
+    echo "endpoint_task_id=$id"
+    echo "worktree=$dir/smhome"
+    echo "project=$dir/smhome"
+    echo "harness=claude"
+    echo "kind=secondmate"
+    echo "mode=secondmate"
+    echo "yolo=off"
+    echo "model=default"
+    echo "effort=default"
+    echo "home=$dir/smhome"
+  } > "$home/state/$id.meta"
+  printf '%s\n' "fm-$id" > "$dir/fake/windows"
+  printf '%s' "$dir/smhome" > "$dir/fake/cwd"
+  printf 'codex' > "$dir/fake/becomes"
+}
+
+# Between stopping the old agent and confirming the new one, a secondmate's
+# endpoint reads dead, which is what the watcher's liveness tick relaunches on.
+# The relaunch therefore holds that mate's liveness lock from before the exit
+# command until the replacement launch has been typed, and releases it after.
+test_secondmate_relaunch_holds_the_liveness_lock() {
+  local dir lock out rc
+  dir=$(new_case smlivelock sml1)
+  add_relaunch_secondmate "$dir" sml1
+  lock="$dir/home/state/.secondmate-liveness-sml1.lock"
+  out=$(FM_FAKE_LOCK_PROBE=$lock run_control "$dir" sml1 relaunch); rc=$?
+  expect_code 0 "$rc" "a secondmate relaunch should succeed"$'\n'"$out"
+  [ -s "$dir/fake/lock-probe" ] || fail "the stub never observed a typed literal"
+  assert_not_contains "$(cat "$dir/fake/lock-probe")" free \
+    "the liveness lock must be held for every literal the relaunch types, including the exit command and the launch"
+  [ "$(grep -c . "$dir/fake/lock-probe")" -ge 2 ] \
+    || fail "the probe should have seen at least the exit command and the launch: $(cat "$dir/fake/lock-probe")"
+  [ ! -e "$lock" ] || fail "a finished relaunch must release the liveness lock"
+  pass "fm-control relaunch: a secondmate relaunch holds its liveness lock across stop and launch, then releases it"
+}
+
+# A liveness episode that already holds the lock may be mid-relaunch of the same
+# mate, so a manual relaunch refuses before it touches the agent rather than
+# racing a second replacement spawn.
+test_secondmate_relaunch_refuses_while_a_liveness_episode_holds_the_lock() {
+  local dir lock holder out rc i=0
+  dir=$(new_case smlivebusy sml2)
+  add_relaunch_secondmate "$dir" sml2
+  lock="$dir/home/state/.secondmate-liveness-sml2.lock"
+  ( STATE="$dir/home/state" bash -c \
+      '. "$1" && fm_lock_acquire_wait "$2" && sleep 30' \
+      _ "$ROOT/bin/fm-wake-lib.sh" "$lock" ) &
+  holder=$!
+  while [ ! -e "$lock" ] && [ "$i" -lt 100 ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -e "$lock" ] || fail "the fixture never acquired the liveness lock"
+  out=$(run_control "$dir" sml2 relaunch); rc=$?
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  expect_code 1 "$rc" "a relaunch under a held liveness lock should refuse"
+  assert_contains "$out" "a secondmate liveness check is in progress for sml2; nothing was changed" \
+    "the refusal should name the liveness episode"
+  [ "$(cat "$dir/fake/command")" = claude ] \
+    || fail "the refusal must land before the running agent is stopped"
+  [ ! -s "$dir/fake/literal" ] || fail "a refused relaunch must type nothing: $(cat "$dir/fake/literal")"
+  [ ! -e "$dir/home/state/sml2.control-relaunch" ] \
+    || fail "a refused relaunch must not open a transaction journal"
+  pass "fm-control relaunch: a secondmate relaunch refuses before stopping anything while a liveness episode holds the lock"
 }
 
 test_explicit_secondmate_harness_ignores_configured_profile_axes() {
@@ -2615,6 +2701,8 @@ test_secondmate_relaunch_picks_up_the_configured_harness_pin
 test_secondmate_claude_relaunch_keeps_local_settings
 test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
+test_secondmate_relaunch_holds_the_liveness_lock
+test_secondmate_relaunch_refuses_while_a_liveness_episode_holds_the_lock
 test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one

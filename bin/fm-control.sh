@@ -89,6 +89,10 @@
 #              the prior durable record in place and reports the concrete
 #              state; it never leaves a half-transitioned task claiming to be
 #              running.
+#              A secondmate relaunch holds that mate's liveness lock
+#              (bin/fm-secondmate-liveness-lib.sh) for the whole transaction,
+#              and refuses before anything is touched while a liveness episode
+#              holds it.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
@@ -196,6 +200,7 @@ die() {  # <message>
 
 CONTROL_LOCK=
 CONTROL_LOCK_HELD=0
+SM_LIVENESS_LOCK=
 RELAUNCH_ACTIVE=0
 RELAUNCH_PHASE=start
 
@@ -204,6 +209,10 @@ control_cleanup() {
   if [ "$RELAUNCH_ACTIVE" = 1 ] \
      && declare -F relaunch_rollback >/dev/null 2>&1; then
     relaunch_rollback || true
+  fi
+  if [ -n "$SM_LIVENESS_LOCK" ]; then
+    fm_lock_release "$SM_LIVENESS_LOCK" || true
+    SM_LIVENESS_LOCK=
   fi
   # Remove the dialog file while the lock is still held: once it is released,
   # the next lifecycle command for this task writes the same path.
@@ -1092,6 +1101,17 @@ do_relaunch() {
       die "task $ID records kind '$KIND', which has no defined relaunch shape"
       ;;
   esac
+
+  # Between stopping the old agent and confirming the new one, this mate's
+  # endpoint reads dead on purpose, which is exactly what the watcher's
+  # liveness tick and the session-start sweep relaunch on. Hold the per-mate
+  # lock they serialize on until the transaction ends, so they skip this mate
+  # instead of killing its endpoint and racing a second replacement spawn.
+  if [ "$KIND" = secondmate ]; then
+    fm_lock_try_acquire "$STATE/.secondmate-liveness-$ID.lock" \
+      || die "a secondmate liveness check is in progress for $ID; nothing was changed - retry the relaunch"
+    SM_LIVENESS_LOCK="$STATE/.secondmate-liveness-$ID.lock"
+  fi
 
   if [ -n "$NOTE" ]; then
     note_line="note_file=$NOTE_FILE"
