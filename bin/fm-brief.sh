@@ -445,15 +445,21 @@ INBOX_DIR=$(shell_quote "$STATE/$ID.inbox")
 # owned by bin/fm-task-inbox-lib.sh. The doorbell names the inbox as
 # "$FM_TASK_INBOX", which bin/fm-spawn.sh exports into every launch; the full
 # path here remains the fallback for a worker launched without that export.
-# The doorbell itself is self-describing, so this section is reinforcement
-# for the natural-checkpoint habit, not the only carrier of the instruction.
+# The doorbell itself is self-describing, so this section is reinforcement,
+# not the only carrier of the instruction.
+# A ship or scout record is re-rung until acknowledged, so those workers check
+# only on the doorbell instead of spending turns, each one resending the whole
+# context, on an inbox that is usually empty. A secondmate keeps the
+# natural-checkpoint check because a fire-and-forget record to it is never
+# re-rung.
 # config/wait-no-turns (docs/configuration.md) adds the line that a waiting
-# worker does not poll the inbox: checkpoint checks happen during active work,
-# so waiting still spends no turns.
+# worker does not poll the inbox, so waiting still spends no turns.
+INBOX_WHEN='When a terminal message (the doorbell line) says an instruction is waiting there, and only then,'
+[ "$KIND" != secondmate ] || INBOX_WHEN='When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure -'
 IFS= read -r -d '' INBOX_SECTION <<EOF || true
 # Firstmate instruction inbox
 Firstmate steers you through durable message files in $INBOX_DIR.
-When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list $INBOX_DIR/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: \`mv $INBOX_DIR/NNN.msg $INBOX_DIR/handled/\`.
+$INBOX_WHEN list $INBOX_DIR/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: \`mv $INBOX_DIR/NNN.msg $INBOX_DIR/handled/\`.
 The move IS the acknowledgement: without it firstmate rings again and eventually treats you as stuck. An empty or absent inbox needs no action.
 EOF
 if [ -e "$CONFIG/wait-no-turns" ]; then
@@ -694,6 +700,7 @@ The report is the only thing that survives, so anything worth keeping must be in
    \`$STATUS_APPEND\`
    States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
    Substitute \`<epoch>\` with the current Unix time in seconds - run \`date +%s\` and write the number it printed; a stamp that is not plain digits records no time at all.
+   Append a status line in the same shell command as the action it reports, such as \`git commit ... && echo ...\`, not in a separate call.
    Each append wakes firstmate, so report sparingly: only phase changes a supervisor
    would act on and the needs-decision/blocked/paused/done/failed states. No step-by-step
    FYI progress lines; firstmate reads your pane for that.
@@ -707,6 +714,7 @@ $CREWMATE_PAUSE_INSTRUCTIONS
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
 $SHARED_INFRA_RULE
+8. When you delegate to a helper subagent, give it one bounded deliverable and a budget of about 150 tool calls; make any loop over a harness a script that writes a results file, and have the helper return a one-page summary.
 
 $WAIT_BLOCK$INBOX_SECTION
 
@@ -770,6 +778,7 @@ $RULE1
    \`$STATUS_APPEND\`
    States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
    Substitute \`<epoch>\` with the current Unix time in seconds - run \`date +%s\` and write the number it printed; a stamp that is not plain digits records no time at all.
+   Append a status line in the same shell command as the action it reports, such as \`git commit ... && echo ...\`, not in a separate call.
    Each append wakes firstmate, so report sparingly: only phase changes a supervisor
    would act on (setup done, bug reproduced, fix implemented, validation passed) and the
    needs-decision/blocked/paused/done/failed states. No step-by-step FYI progress lines;
@@ -787,6 +796,7 @@ $ASK_USER_BLOCK
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
 $SHARED_INFRA_RULE
+8. When you delegate to a helper subagent, give it one bounded deliverable and a budget of about 150 tool calls; make any loop over a harness a script that writes a results file, and have the helper return a one-page summary.
 
 $WAIT_BLOCK$INBOX_SECTION
 
