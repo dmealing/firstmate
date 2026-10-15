@@ -5103,6 +5103,90 @@ herdr_popup_composer_screen() {  # <typed-text>
   printf '  \xe2\x8f\xb5\xe2\x8f\xb5 bypass permissions on\n'
 }
 
+# Claude Code 2.1.300 second-mate pane under Herdr 0.9.1, as `pane read
+# --format ansi` returned it live on 2026-10-14: the composer's top rule
+# carries the `2nd mate · <id>` session name, and the slash-command menu
+# below the closing rule marks its selected entry with `❯`.
+herdr_titled_rule() {  # top|bottom
+  local rule
+  rule=$(printf '%0.s\xe2\x94\x80' $(seq 1 96))
+  if [ "$1" = top ]; then
+    printf '\033[0m\033[38;2;136;136;136m%s 2nd mate \xc2\xb7 smexit \xe2\x94\x80\033[0m\n' "$rule"
+  else
+    printf '\033[0m\033[38;2;136;136;136m%s%s\033[0m\n' "$rule" "$(printf '%0.s\xe2\x94\x80' $(seq 1 20))"
+  fi
+}
+
+herdr_titled_idle_screen() {
+  herdr_titled_rule top
+  printf '\xe2\x9d\xaf\xc2\xa0\n'
+  herdr_titled_rule bottom
+  printf '  \033[0m\033[38;2;255;107;128m\xe2\x8f\xb5\xe2\x8f\xb5 bypass permissions on\033[0m\n'
+}
+
+herdr_titled_slash_menu_screen() {  # <typed-command>
+  herdr_titled_rule top
+  printf '\xe2\x9d\xaf\xc2\xa0\033[0m\033[38;2;177;185;249m%s\033[0m\n' "$1"
+  herdr_titled_rule bottom
+  printf '  \033[0m\033[38;2;177;185;249m\xe2\x9d\xaf %s\033[0m\033[1m\033[38;2;177;185;249m%s\033[0m\033[38;2;177;185;249m                                          \033[0m\033[1m\033[38;2;177;185;249mExit\033[0m\033[38;2;177;185;249m the CLI                          \033[0m\n' "${1:0:1}" "${1:1}"
+  printf '  \033[0m\033[38;2;153;153;153m  /context                                       Visualize current context usage as a colored grid\033[0m\n'
+  printf '  \033[0m\033[38;2;153;153;153m  /usage-credits                                 Configure usage credits or request them from your admin when you\033[0m\n'
+  printf '                                                   \033[0m\033[38;2;153;153;153mhit a limit\033[0m\n'
+}
+
+herdr_titled_wrapped_screen() {  # <first-row> <wrap-row>
+  herdr_titled_rule top
+  printf '\xe2\x9d\xaf\xc2\xa0%s\n' "$1"
+  printf '  %s\n' "$2"
+  herdr_titled_rule bottom
+  printf '  \033[0m\033[38;2;255;107;128m\xe2\x8f\xb5\xe2\x8f\xb5 bypass permissions on\033[0m\n'
+}
+
+# The exit of every idle Claude second mate failed: the payload proof read the
+# `❯` menu pick as the composer, saw the whole menu instead of `/exit`, and
+# cleared the composer instead of pressing Enter.
+test_send_text_submit_claude_2_1_300_slash_menu_exit_is_submitted() {
+  local dir log resp fb out enter_count text
+  dir="$TMP_ROOT/submit-claude-2-1-300-slash-menu"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  text='/exit'
+  herdr_submit_claude_prefix "$resp" "$text"
+  herdr_titled_idle_screen > "$resp/2.out"
+  herdr_titled_slash_menu_screen "$text" > "$resp/4.out"
+  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/5.out"
+  printf '{"result":{"agent":{"agent_status":"working"}}}\n' > "$resp/7.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "$1" 3 0.01 0.01' "$ROOT" "$text" )
+  [ "$out" = empty ] || fail "a typed /exit above Claude 2.1.300's slash menu must be submitted, got '$out'"
+  enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
+  [ "$enter_count" -eq 1 ] || fail "the proven /exit should be submitted once, sent $enter_count Enter(s)"
+  [ "$(herdr_ctrl_u_count "$log")" -eq 0 ] || fail "a proven /exit must not be cleared"
+  pass "fm_backend_herdr_send_text_submit: /exit above Claude 2.1.300's marked slash-menu pick is proven and submitted"
+}
+
+# The firstmate doorbell wraps to two rows in a titled second-mate composer;
+# the proof must read both rows rather than clear an unproven composer.
+test_send_text_submit_claude_titled_wrapped_doorbell_is_submitted() {
+  local dir log resp fb out enter_count text first wrap
+  dir="$TMP_ROOT/submit-claude-titled-wrapped"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  first=": Firstmate instruction waiting: list \"\$FM_TASK_INBOX\"/*.msg in your 'smexit.inbox' steering inbox, read and act"
+  wrap='on each in numeric order, then mv each into its handled/.'
+  text="$first $wrap"
+  herdr_submit_claude_prefix "$resp" "$text"
+  herdr_titled_idle_screen > "$resp/2.out"
+  herdr_titled_wrapped_screen "$first" "$wrap" > "$resp/4.out"
+  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/5.out"
+  printf '{"result":{"agent":{"agent_status":"working"}}}\n' > "$resp/7.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "$1" 3 0.01 0.01' "$ROOT" "$text" )
+  [ "$out" = empty ] || fail "a wrapped doorbell in a titled composer must be submitted, got '$out'"
+  enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
+  [ "$enter_count" -eq 1 ] || fail "the proven doorbell should be submitted once, sent $enter_count Enter(s)"
+  [ "$(herdr_ctrl_u_count "$log")" -eq 0 ] || fail "a proven doorbell must not be cleared"
+  pass "fm_backend_herdr_send_text_submit: a doorbell wrapped in a titled second-mate composer is proven and submitted"
+}
+
 test_send_text_submit_long_literal_submits_when_composer_holds_every_byte() {
   local dir log resp fb out enter_count text
   dir="$TMP_ROOT/submit-long-exact"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -6278,6 +6362,8 @@ test_send_text_submit_accepts_marked_payloads_whose_read_back_drops_u2063
 test_send_text_submit_refuses_marked_digest_missing_its_head
 test_composer_state_claude_slash_popup_pushes_composer_above_tail_window
 test_send_text_submit_claude_slash_popup_composer_is_still_proven_and_submitted
+test_send_text_submit_claude_2_1_300_slash_menu_exit_is_submitted
+test_send_text_submit_claude_titled_wrapped_doorbell_is_submitted
 test_send_text_submit_claude_grey_slash_command_is_proven_and_submitted
 test_send_text_submit_lone_paste_placeholder_submits_the_long_payload
 test_send_text_submit_multiline_paste_placeholder_submits_the_long_payload

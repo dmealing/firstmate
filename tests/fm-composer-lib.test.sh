@@ -997,6 +997,83 @@ test_matrix_claude_titled_top_rule() {
   pass "matrix: claude's titled top rule proves an idle composer empty and a draft pending (#5601, #5558)"
 }
 
+# claude_menu_fixture <top-rule> <composer-row> <bottom-rule>: a Claude Code
+# 2.1.300 second-mate pane under Herdr 0.9.1 (captured 2026-10-14) with
+# `/exit` typed, so the slash-command menu renders under the composer and
+# marks its selected entry with the agent glyph.
+claude_menu_fixture() {  # <top-rule> <composer-row> <bottom-rule> [notice-row]
+  local grey="${ESC}[38;2;136;136;136m" lilac="${ESC}[38;2;177;185;249m" dim="${ESC}[38;2;153;153;153m"
+  printf '%s\n' "${ESC}[0m${dim}✻${ESC}[0m ${ESC}[0m${dim}Baked for 2s · done 10:35 PM${ESC}[0m" ''
+  printf '%s\n' "${ESC}[0m${grey}$1${ESC}[0m"
+  printf '%s\n' "$2"
+  printf '%s\n' "${ESC}[0m${grey}$3${ESC}[0m"
+  [ -z "${4:-}" ] || printf '%s\n' "$4"
+  printf '%s\n' "  ${ESC}[0m${lilac}❯ /${ESC}[0m${ESC}[1m${lilac}exit${ESC}[0m${lilac}                                          ${ESC}[0m${ESC}[1m${lilac}Exit${ESC}[0m${lilac} the CLI${ESC}[0m"
+  printf '%s\n' "  ${ESC}[0m${dim}  /context                                       Visualize current context usage as a colored grid${ESC}[0m"
+  printf '%s\n' "  ${ESC}[0m${dim}  /usage-credits                                 Configure usage credits or request them from your admin when you${ESC}[0m"
+  printf '%s\n' "                                                   ${ESC}[0m${dim}hit a limit${ESC}[0m"
+}
+
+test_matrix_claude_slash_menu_pick_and_wrapped_titled_composer() {
+  # Claude Code 2.1.296+ marks the selected slash-command menu entry with `❯`
+  # directly under the composer's closing rule. The bottom-most-candidate rule
+  # took that pick row for the composer, so a typed `/exit` read back as the
+  # whole menu, the Herdr payload proof cleared it, and every exit of an idle
+  # second mate failed. A doorbell line long enough to wrap in a titled
+  # second-mate composer failed the same proof because the titled sandwich
+  # demanded its closing rule on the very next row.
+  local rule top bottom plain composer screen out doorbell wrapped claude_idle
+  claude_idle=$(printf 'claude\tidle')
+  rule='────────────────────────────────────────────────────────────────────────────────────────────────'
+  # The titled rule is exactly as wide as its closing rule, as rendered.
+  top="${rule} 2nd mate · smexit ─"
+  bottom="${rule}────────────────────"
+  plain="${bottom}────"
+  composer="❯${NBSP}${ESC}[0m${ESC}[38;2;177;185;249m/exit${ESC}[0m"
+  screen=$(claude_menu_fixture "$top" "$composer" "$bottom")
+  out=$(fm_composer_extract_selected_content "$CAPS_STYLED" "$screen")
+  [ "$out" = /exit ] || fail "titled composer above the slash menu should extract '/exit', got '$out'"
+  assert_screen "titled claude /exit above its slash menu on herdr" pending "$CAPS_STYLED" "$screen" '' "$claude_idle"
+  assert_screen "titled claude /exit above its slash menu on zellij" pending "$CAPS_STYLED_NOID" "$screen"
+  screen=$(claude_menu_fixture "$plain" "$composer" "$plain")
+  out=$(fm_composer_extract_selected_content "$CAPS_STYLED" "$screen")
+  [ "$out" = /exit ] || fail "untitled composer above the slash menu should extract '/exit', got '$out'"
+  assert_screen "untitled claude /exit above its slash menu on herdr" pending "$CAPS_STYLED" "$screen" '' "$claude_idle"
+  # Claude prints notice rows between the closing rule and the menu; the pick
+  # under them is still not a composer (captured the same day).
+  screen=$(claude_menu_fixture "$plain" "$composer" "$plain" \
+    "  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_CODE_FORCE_SESSION_PE…")
+  out=$(fm_composer_extract_selected_content "$CAPS_STYLED" "$screen")
+  [ "$out" = /exit ] || fail "a composer above a notice row and the slash menu should extract '/exit', got '$out'"
+  assert_screen "claude /exit above a notice row and its slash menu on herdr" pending "$CAPS_STYLED" "$screen" '' "$claude_idle"
+  # A blank row ends the run below the closing rule: a glyph row after it is
+  # not that menu's pick.
+  screen=$(claude_menu_fixture "$plain" "$composer" "$plain")$'\n\n❯ /context'
+  out=$(fm_composer_extract_selected_content "$CAPS_STYLED" "$screen")
+  [ "$out" = /context ] || fail "a slash-command glyph row past a blank row must stay the bottom-most candidate, got '$out'"
+  # The pick is skipped only under a slash-command composer: a glyph row under
+  # a rule whose composer holds ordinary text stays the bottom-most candidate.
+  screen=$(claude_menu_fixture "$plain" "❯${NBSP}fix the login bug" "$plain")
+  out=$(fm_composer_extract_selected_content "$CAPS_STYLED" "$screen")
+  [ "$out" != 'fix the login bug' ] \
+    || fail "a menu-shaped row under an ordinary draft must not be skipped as a slash-menu pick"
+  # The firstmate doorbell wraps to two rows in a titled second-mate composer.
+  doorbell=": Firstmate instruction waiting: list \"\$FM_TASK_INBOX\"/*.msg in your 'smexit.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/."
+  wrapped="${ESC}[0m${ESC}[38;2;136;136;136m${top}${ESC}[0m"$'\n'
+  wrapped+="❯${NBSP}: Firstmate instruction waiting: list \"\$FM_TASK_INBOX\"/*.msg in your 'smexit.inbox' steering inbox, read and act"$'\n'
+  wrapped+="  on each in numeric order, then mv each into its handled/."$'\n'
+  wrapped+="${ESC}[0m${ESC}[38;2;136;136;136m${bottom}${ESC}[0m"$'\n'
+  wrapped+="  ${ESC}[0m${ESC}[38;2;255;107;128m⏵⏵ bypass permissions on${ESC}[0m${ESC}[38;2;153;153;153m (shift+tab to cycle)${ESC}[0m"
+  out=$(fm_composer_extract_selected_content "$CAPS_STYLED" "$wrapped")
+  [ "$out" = "$doorbell" ] || fail "a wrapped doorbell in a titled composer should extract whole, got '$out'"
+  assert_screen "wrapped doorbell in a titled claude composer on herdr" pending "$CAPS_STYLED" "$wrapped" '' "$claude_idle"
+  # Wrap rows must still be contiguous composer rows: a blank row between the
+  # glyph row and the closing rule is not a wrapped composer.
+  wrapped="${top}"$'\n'"❯${NBSP}: Firstmate instruction waiting"$'\n\n'"${bottom}"
+  assert_screen "titled rule over a gapped wrap" unknown "$CAPS_STYLED_NOID" "$wrapped"
+  pass "matrix: claude's slash-menu pick never stands in for the composer, and a wrapped titled composer is proven"
+}
+
 test_matrix_kimi_bordered_shell_glyph_box() {
   # Kimi's bordered `│ > │` composer - the shape fm-spawn.sh's retired
   # spawn-local regex used to own. Now the shared owner proves it everywhere,
@@ -1251,6 +1328,7 @@ test_matrix_opencode_leftbar_cwd_furniture
 test_matrix_opencode_leftbar_abs_cwd_furniture
 test_matrix_grok_titled_bottom_border
 test_matrix_claude_titled_top_rule
+test_matrix_claude_slash_menu_pick_and_wrapped_titled_composer
 test_matrix_kimi_bordered_shell_glyph_box
 test_matrix_claude_inside_zellij_ansi_dump
 test_strict_blank_row_divergence
