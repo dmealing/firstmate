@@ -9,7 +9,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | --- | --- |
 | Firstmate's code, private files, or project location | [FM_HOME](#fm_home) and [operational home layout](#operational-home-layout-and-state) |
 | Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend) and [harness support](#harness-support) |
-| Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), [worker tool exclusions](#worker-tool-exclusions-configcrew-exclude-tools), [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist), and its [Orca environment source](#orca-environment-source-configlaunch-env-tmux-session) |
+| Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [Claude worker compact window](#claude-worker-compact-window-configclaude-compact-window), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), [worker tool exclusions](#worker-tool-exclusions-configcrew-exclude-tools), [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist), and its [Orca environment source](#orca-environment-source-configlaunch-env-tmux-session) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), [external memory tiers](#external-memory-tiers-memory-layering-section), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), and [Calm preference](#calm-preference-configcalm) |
 | Persistent secondmates | [Secondmate routes](#secondmate-routes-datasecondmatesmd) |
@@ -1168,6 +1168,23 @@ An absent or blank file changes nothing, while a present path that is not a read
 The text is static and never executed or expanded; secondmate charters never take it, and the file is local to each home rather than part of secondmate inherited configuration.
 
 `bin/fm-brief.sh`'s header owns the placement rule and its safety argument.
+
+## Claude worker compact window (config/claude-compact-window)
+
+Claude ship and scout workers auto-compact at a 300,000-token context window by default, whatever the captain's own Claude settings say.
+Firstmate puts `autoCompactWindow` in the launch's inline `--settings` JSON, which outranks user, project, and local settings for that session.
+Helper subagents the worker runs inside the same session share that window.
+Secondmate launches never carry the key, and nothing is exported, so a validation gate or any other separately launched Claude keeps its own window.
+The default exists because context size drives most worker quota use: every call re-reads the whole context, and a smaller window keeps the per-call context near half of it.
+
+The optional local, gitignored `config/claude-compact-window` changes the window.
+Its whitespace-trimmed token is either a token count from 100000 to 1000000, which replaces the default, or `inherit`, which omits the key so workers follow the captain's own Claude settings.
+Use `inherit` to turn the cap off.
+Any other value or an unreadable file refuses every spawn from that home before any endpoint, worktree, or task record exists, and the diagnostic names the accepted values.
+
+`bin/fm-spawn.sh` reads the file on every spawn and relaunch, so a change reaches the next launch without a restart.
+The file is inherited into secondmate homes, so a secondmate's own Claude crewmates use the same window.
+[`bin/fm-spawn.sh`](../bin/fm-spawn.sh)'s header owns the launch mechanics.
 
 ## Worker launch environment (config/launch-env-allowlist)
 

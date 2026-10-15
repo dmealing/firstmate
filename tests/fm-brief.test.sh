@@ -556,13 +556,71 @@ test_no_mistakes_dod_green_detection() {
     "no-mistakes DOD must say axi status cannot show a green PR in merge monitoring"
   assert_grep "never wait on a status poll for the next gate or outcome" "$brief" \
     "no-mistakes DOD must forbid waiting on a status poll"
-  assert_grep "reattach at once by re-running \`no-mistakes axi run\` without flags" "$brief" \
+  assert_grep "reattach at once by re-running \`no-mistakes axi run --wait 55m\` with no other flags" "$brief" \
     "no-mistakes DOD must reattach the drive call after a bounded return"
   assert_grep "once checks are green it returns \`checks-passed\` immediately" "$brief" \
     "no-mistakes DOD must say a reattach reports an already-green PR"
   assert_no_grep "poll \`no-mistakes axi status\` from a separate call" "$brief" \
     "no-mistakes DOD still makes a status poll the wait for the next gate or outcome"
   pass "fm-brief.sh: no-mistakes DOD detects a green PR from the drive call, not a status poll"
+}
+
+# Context size drives worker quota, so the scaffold keeps validation and
+# delegation from growing it: no standing pre-gate review (a host triage command
+# names any extra pass), the pre-gate intent check, round-one intent-conformance
+# handling, one backgrounded long wait instead of status polling, same-command
+# status appends, and bounded helpers.
+test_briefs_keep_worker_context_small() {
+  local home id brief mode
+  home="$TMP_ROOT/context-home"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-context-nm some-proj --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/brief-context-nm/brief.md"
+  assert_present "$brief" "no-mistakes brief was not scaffolded"
+  assert_grep "Run no standing \`/code-review\` or \`/simplify\` before the pipeline" "$brief" \
+    "no-mistakes DOD does not rule out a standing pre-gate review"
+  assert_grep "where an \`nm-triage\` command is installed, follow its pre-gate line instead" "$brief" \
+    "no-mistakes DOD does not point at the triage pre-gate line"
+  assert_no_grep "Run a review pass over your branch's full change first" "$brief" \
+    "no-mistakes DOD still asks for a standing pre-gate review pass"
+  assert_grep "Firstmate will then instruct you to run /no-mistakes" "$brief" \
+    "no-mistakes DOD lost the gate handoff"
+  assert_grep "git diff --stat main...HEAD" "$brief" "no-mistakes DOD lacks the pre-gate intent check"
+  assert_grep "An intent-conformance finding in the first review round is settled before any fix round and never approved around" "$brief" \
+    "no-mistakes DOD does not settle intent-conformance findings at round one"
+  assert_grep "background the drive call with \`--wait 55m\`" "$brief" \
+    "the backgrounded drive call does not carry a long wait"
+  assert_grep "Never loop \`sleep\` and \`no-mistakes axi status\` while it runs" "$brief" \
+    "no-mistakes DOD does not forbid sleep-and-status polling"
+  assert_no_grep "poll \`no-mistakes axi status\` from a separate call" "$brief" \
+    "no-mistakes DOD still asks the worker to poll status"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-context-scout some-proj --scout >/dev/null 2>&1
+  for mode in direct-PR local-only; do
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "brief-context-$mode" some-proj --mode "$mode" >/dev/null 2>&1
+  done
+  for id in brief-context-nm brief-context-scout brief-context-direct-PR brief-context-local-only; do
+    brief="$home/data/$id/brief.md"
+    assert_present "$brief" "$id brief was not scaffolded"
+    assert_grep "Append a status line in the same shell command as the action it reports" "$brief" \
+      "$id: status appends are not tied to the action they report"
+    assert_grep "a budget of about 150 tool calls" "$brief" "$id: delegated helpers are not bounded"
+    assert_grep "return a one-page summary" "$brief" "$id: helpers are not told to return a summary"
+    assert_grep "(the doorbell line) says an instruction is waiting there, and only then" "$brief" \
+      "$id: the inbox is not checked on the doorbell"
+    assert_no_grep "natural checkpoint" "$brief" "$id: the inbox is still checked at natural checkpoints"
+    [ "$id" = brief-context-nm ] && continue
+    assert_no_grep "/code-review" "$brief" "$id brief received pre-gate review guidance"
+    assert_no_grep "intent-conformance" "$brief" "$id brief received validation guidance"
+  done
+
+  # A fire-and-forget record to a secondmate is never re-rung, so its charter
+  # keeps the natural-checkpoint inbox check.
+  FM_SECONDMATE_CHARTER='Supervise the alpha domain.' \
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-context-sm --secondmate --no-projects >/dev/null 2>&1
+  brief="$home/data/brief-context-sm/brief.md"
+  assert_present "$brief" "secondmate charter was not scaffolded"
+  assert_grep "natural checkpoint" "$brief" "secondmate: the charter dropped the natural-checkpoint inbox check"
+  pass "fm-brief.sh: briefs bound pre-gate review, validation polling, inbox checks, status calls, and helpers"
 }
 
 test_ask_user_escalation_format() {
@@ -1224,7 +1282,8 @@ test_workers_wait_without_spending_turns() {
       "$id: a timed-out respond must reattach with axi run, never resend its answer"
     assert_grep "Do not poll or list the inbox while waiting; a waiting instruction rings." "$brief" \
       "$id: polling the inbox while waiting is not forbidden"
-    assert_grep "natural checkpoint" "$brief" "$id: the flag dropped the natural-checkpoint inbox check"
+    assert_grep "(the doorbell line) says an instruction is waiting there, and only then" "$brief" \
+      "$id: the flag dropped the doorbell-only inbox check"
   done
   brief="$home/data/brief-wait-ship/brief.md"
   assert_grep "issue the same foreground call again" "$brief" \
@@ -1251,7 +1310,8 @@ test_wait_no_turns_absent_keeps_the_previous_brief() {
     || fail "fm-brief.sh ship scaffold exited non-zero"
   brief="$home/data/brief-wait-off/brief.md"
   assert_no_grep "end your turn at once" "$brief" "an absent flag still added the waiting section"
-  assert_grep "natural checkpoint" "$brief" "an absent flag dropped the unprompted inbox check"
+  assert_grep "(the doorbell line) says an instruction is waiting there, and only then" "$brief" \
+    "an absent flag dropped the doorbell-only inbox check"
   assert_no_grep "Do not poll or list the inbox while waiting" "$brief" "an absent flag still added the no-poll inbox line"
   assert_grep "background the drive call" "$brief" "an absent flag replaced the backgrounded drive text"
   assert_no_grep "issue the same foreground call again" "$brief" \
@@ -1649,6 +1709,7 @@ test_faster_paths_use_configured_authority_without_stacked_review
 test_no_mistakes_dod_wording
 test_no_mistakes_dod_green_detection
 test_pr_based_dod_requires_non_draft
+test_briefs_keep_worker_context_small
 test_ask_user_escalation_format
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete

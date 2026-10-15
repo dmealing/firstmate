@@ -53,3 +53,4 @@ Do not relay reviewer labels or gate output as if they settled the decision.
 - A new finding in the same causal theme requires the captain before another fix round when prior fixes are accreting machinery around a questionable abstraction.
 - A genuinely security-sensitive action requires the captain under the stronger existing boundary even if it is otherwise within scope.
 - Complex architecture explicitly requested by the captain stays within scope and does not escalate merely because it is complex.
+- An intent-conformance finding in the first review round, where `--intent` still names an item the change deliberately leaves out, is decided before any fix round: narrow the intent through a new run or fix the scope, never approve around it.

@@ -429,6 +429,18 @@
 #   in this launching home, then falls back to its home-wide pin when absent.
 #   Pins are never inherited; remote per-mate overrides refuse locally.
 #   bin/fm-worker-account-lib.sh owns parsing, the check, and the shed list.
+# Claude worker compact window (config/claude-compact-window):
+#   Claude ship and scout launches carry "autoCompactWindow" in their inline
+#   --settings JSON, so the worker and the helper subagents it runs in the same
+#   process compact at that context size instead of the captain's user-scope
+#   value. Flag settings outrank user, project, and local settings, and the
+#   key is never exported, so a validation gate or other separately launched
+#   claude keeps its own window. Absent file: FM_CLAUDE_COMPACT_WINDOW_DEFAULT
+#   (300000). The file's whitespace-trimmed token is either an integer from
+#   100000 to 1000000, which replaces the default, or `inherit`, which omits the
+#   key so workers follow the captain's own settings. Any other value refuses
+#   the spawn before any mutation. Secondmate launches never carry the key.
+#   Read on every spawn and relaunch; inherited into secondmate homes.
 #   Launch templates live in launch_template() below; placeholders replaced before launch:
 #     __BRIEF__    absolute path to data/<task-id>/brief.md
 #     __CLAUDEPERMFLAG__ the claude permission flag selected by config/claude-permission-mode
@@ -439,7 +451,8 @@
 #                  JSON object for a crewmate or scout, or a quoted path to
 #                  state/<task-id>.claude-settings.json for a secondmate; it
 #                  turns Remote Control on for a secondmate, or off (with the
-#                  matching defaultMode) for a ship or scout
+#                  matching defaultMode and the worker autoCompactWindow) for a
+#                  ship or scout
 #     __CLAUDENAME__ quoted claude --name display name for the launch kind
 #                  (`2nd mate · <id>`, `worker · <id>`, `scout · <id>`)
 #     __CLAUDESTATEMOD__ quoted path of the tracked firstmate-herdr-state mod
@@ -750,6 +763,29 @@ fi
 EXTERNAL_REVIEW=0
 EXTERNAL_BACKUP_REMOTE=
 EXTERNAL_BACKUP_PREFIX=
+# config/claude-compact-window (header above): resolved before any mutation so
+# a malformed file refuses instead of launching on an unchosen window.
+FM_CLAUDE_COMPACT_WINDOW_DEFAULT=300000
+if ! CLAUDE_COMPACT_PRESENT=$(fm_config_source_present "$CONFIG/claude-compact-window"); then
+  exit 1
+fi
+CLAUDE_COMPACT_WINDOW=$FM_CLAUDE_COMPACT_WINDOW_DEFAULT
+if [ "$CLAUDE_COMPACT_PRESENT" = 1 ]; then
+  if [ ! -f "$CONFIG/claude-compact-window" ] || [ ! -r "$CONFIG/claude-compact-window" ]; then
+    echo "error: config/claude-compact-window must be a readable regular file holding a token count (100000 to 1000000) or inherit" >&2
+    exit 1
+  fi
+  CLAUDE_COMPACT_WINDOW=$(tr -d '[:space:]' <"$CONFIG/claude-compact-window" || true)
+  case "$CLAUDE_COMPACT_WINDOW" in
+  inherit | [1-9][0-9][0-9][0-9][0-9][0-9] | 1000000) ;;
+  *)
+    echo "error: config/claude-compact-window holds '$CLAUDE_COMPACT_WINDOW'; accepted values are: a token count from 100000 to 1000000, or inherit (follow the captain's own Claude settings); absent means $FM_CLAUDE_COMPACT_WINDOW_DEFAULT" >&2
+    exit 1
+    ;;
+  esac
+fi
+CLAUDE_COMPACT_SETTING=
+[ "$CLAUDE_COMPACT_WINDOW" = inherit ] || CLAUDE_COMPACT_SETTING=",\"autoCompactWindow\":$CLAUDE_COMPACT_WINDOW"
 SUB_HOME_MARKER=".fm-secondmate-home"
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   fm_backlog_directory_present "$STATE" "state directory" || {
@@ -6045,8 +6081,9 @@ case "$LAUNCH" in
     LAUNCH=${LAUNCH//__CLAUDESETTINGS__/$(shell_quote "$STATE_REAL/$ID.claude-settings.json")}
   else
     # Remote Control off and the matching defaultMode (launch_template() above
-    # owns the reason).
-    claude_settings="'{\"feedbackDrafts\":\"off\"__CLAUDEATTRIBUTION__,\"remoteControlAtStartup\":false,\"permissions\":{\"defaultMode\":\"$CLAUDE_PERM_DEFAULT_MODE\"}}'"
+    # owns the reason), plus the worker compact window (header "Claude worker
+    # compact window").
+    claude_settings="'{\"feedbackDrafts\":\"off\"__CLAUDEATTRIBUTION__,\"remoteControlAtStartup\":false,\"permissions\":{\"defaultMode\":\"$CLAUDE_PERM_DEFAULT_MODE\"}$CLAUDE_COMPACT_SETTING}'"
     LAUNCH=${LAUNCH//__CLAUDESETTINGS__/$claude_settings}
   fi
   case "$KIND" in
