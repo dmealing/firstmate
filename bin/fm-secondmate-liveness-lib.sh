@@ -44,6 +44,8 @@
 # Concurrency: fm_secondmate_liveness_lock serializes probe+kill+relaunch per
 # task across the bootstrap sweep and the watcher tick, so a concurrent
 # relaunch can never be observed mid-flight as a dead endpoint and killed.
+# bin/fm-control.sh relaunch and bin/fm-teardown.sh hold the same lock for a
+# secondmate, so neither episode acts on a mate they are stopping on purpose.
 # A separate per-home lock serializes relaunches of different mates, since each
 # fresh spawn owns the same task-set lock. The watcher uses its spawn timeout
 # as the lock-wait bound; an untimed sweep defaults to 600 seconds.

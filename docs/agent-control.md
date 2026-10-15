@@ -80,6 +80,7 @@ A relaunch does take one session reference when the endpoint's own runtime recor
    The recorded worktree must exist and be a worktree root; its head and dirty state are recorded.
    For a `kind=secondmate` task, the home's identity marker must match and its child records must be readable, so a relaunch can never strand child work behind an unreadable home.
    A secondmate's own crewmates run in their own endpoints and outlive its relaunch; the relaunched secondmate reconciles them from its home's durable records at startup.
+   A local secondmate relaunch also takes that mate's liveness lock here and holds it until the transaction ends, so the watcher's liveness tick and the session-start sweep skip the mate while its endpoint reads `dead` on purpose instead of racing a second replacement; while one of those episodes holds the lock, the relaunch refuses with nothing changed.
 3. **Record the note.**
    A ship or scout relaunch requires `--note`, because the replacement inherits the local copy but none of the conversation; the note is appended to the instructions it reads.
    A secondmate relaunch does not require one and never rewrites its standing charter.
