@@ -1528,7 +1528,7 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false},\"remoteControlAtStartup\":false,\"permissions\":{\"defaultMode\":\"bypassPermissions\"},\"autoCompactWindow\":300000}' --name 'worker · $id'" \
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false},\"remoteControlAtStartup\":false,\"permissions\":{\"defaultMode\":\"bypassPermissions\"},\"autoCompactWindow\":300000,\"skillListingBudgetFraction\":0.004}' --name 'worker · $id'" \
     "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
@@ -1792,9 +1792,9 @@ test_claude_secondmate_launch_carries_the_attribution_policy() {
   pass "a claude secondmate launch carries the attribution-off policy too"
 }
 
-# Ship and scout workers compact at Firstmate's own window (300000 by default)
-# through their inline --settings JSON, while a secondmate launch keeps the
-# captain's own window: the key never reaches its settings or environment.
+# Ship, scout, and secondmate launches compact at Firstmate's own window
+# (300000 by default): inline --settings JSON for a worker, the
+# state/<id>.claude-settings.json file for a secondmate. Nothing is exported.
 launch_settings_json() {  # <launch-command>
   claude_settings_json_arg "$1"
 }
@@ -1803,8 +1803,23 @@ compact_window_of() {  # <launch-command>
   launch_settings_json "$1" | jq -c '.autoCompactWindow'
 }
 
-test_claude_compact_window_reaches_workers_not_secondmates() {
-  local rec id sm out status launch kind
+# Spawns one secondmate in a fresh case and leaves its launch in LAUNCH_LOG.
+spawn_claude_secondmate_case() {  # <case-name> <id> [home-config-file value]
+  local rec out status sm
+  rec=$(make_spawn_case "$1" claude "$2")
+  read_case_record "$rec"
+  [ "$#" -lt 4 ] || printf '%s\n' "$4" > "$HOME_DIR/config/$3"
+  sm="$CASE_DIR/secondmate-home"
+  make_seeded_secondmate_home "$sm" "$2"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$2" "$sm" --secondmate)
+  status=$?
+  expect_code 0 "$status" "secondmate claude spawn should succeed"$'\n'"$out"
+  [ -n "$(launch_settings_json "$(cat "$LAUNCH_LOG")")" ] \
+    || fail "secondmate launch carries no settings to inspect: $(cat "$LAUNCH_LOG")"
+}
+
+test_claude_compact_window_reaches_workers_and_secondmates() {
+  local rec id out status launch kind
   for kind in ship scout; do
     id="compact-default-$kind-z30"
     rec=$(make_spawn_case "compact-default-$kind" claude "$id")
@@ -1821,20 +1836,21 @@ test_claude_compact_window_reaches_workers_not_secondmates() {
       || fail "claude $kind launch does not carry autoCompactWindow 300000: $(launch_settings_json "$launch")"
   done
 
-  id=compact-secondmate-z31
-  rec=$(make_spawn_case compact-secondmate claude "$id")
-  read_case_record "$rec"
-  sm="$CASE_DIR/secondmate-home"
-  make_seeded_secondmate_home "$sm" "$id"
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
-  status=$?
-  expect_code 0 "$status" "secondmate claude spawn should succeed"$'\n'"$out"
+  spawn_claude_secondmate_case compact-secondmate compact-secondmate-z31
   launch=$(cat "$LAUNCH_LOG")
-  [ -n "$(launch_settings_json "$launch")" ] || fail "secondmate launch carries no settings to inspect: $launch"
-  [ "$(compact_window_of "$launch")" = null ] \
-    || fail "secondmate launch settings must not carry autoCompactWindow: $(launch_settings_json "$launch")"
+  [ "$(compact_window_of "$launch")" = 300000 ] \
+    || fail "secondmate launch settings do not carry autoCompactWindow 300000: $(launch_settings_json "$launch")"
+  [ "$(launch_settings_json "$launch" | jq -c '.remoteControlAtStartup')" = true ] \
+    || fail "secondmate settings lost their session keys: $(launch_settings_json "$launch")"
+  launch_settings_json "$launch" | jq -e '.hooks.UserPromptSubmit' >/dev/null \
+    || fail "secondmate settings lost their busy hooks: $(launch_settings_json "$launch")"
   assert_not_contains "$launch" "AUTO_COMPACT_WINDOW" "secondmate launch must not export a compact window"
-  pass "claude ship and scout launches carry the worker compact window; a secondmate launch does not"
+
+  spawn_claude_secondmate_case compact-secondmate-inherit compact-secondmate-inherit-z34 claude-compact-window inherit
+  launch=$(cat "$LAUNCH_LOG")
+  [ "$(compact_window_of "$launch")" = null ] \
+    || fail "claude-compact-window=inherit must omit the secondmate window: $(launch_settings_json "$launch")"
+  pass "claude ship, scout, and secondmate launches carry the compact window, and inherit omits it everywhere"
 }
 
 test_claude_compact_window_config_overrides_or_inherits() {
@@ -1871,6 +1887,69 @@ test_claude_compact_window_invalid_refuses_before_endpoint_or_metadata() {
     assert_absent "$HOME_DIR/state/$id.meta" "refusal must happen before meta is written"
   done
   pass "an out-of-range or malformed config/claude-compact-window refuses before any endpoint or metadata"
+}
+
+# Ship and scout workers start with a smaller skill listing and drop the
+# plugins config/claude-worker-plugins-off names; secondmates keep both.
+worker_trim_of() {  # <launch-command>
+  launch_settings_json "$1" | jq -c '{skillListingBudgetFraction, enabledPlugins}'
+}
+
+test_claude_worker_start_prompt_trim_reaches_workers_not_secondmates() {
+  local rec id out status launch kind want
+  for kind in ship scout; do
+    id="trim-$kind-z35"
+    rec=$(make_spawn_case "trim-$kind" claude "$id")
+    read_case_record "$rec"
+    printf '%s\n' '# keep these out of workers' 'superpowers@claude-plugins-official' '' '  caveman@caveman  # trailing note' \
+      > "$HOME_DIR/config/claude-worker-plugins-off"
+    if [ "$kind" = scout ]; then
+      out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --scout)
+    else
+      out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+    fi
+    status=$?
+    expect_code 0 "$status" "claude $kind spawn with plugins off should succeed"$'\n'"$out"
+    launch=$(cat "$LAUNCH_LOG")
+    want='{"skillListingBudgetFraction":0.004,"enabledPlugins":{"superpowers@claude-plugins-official":false,"caveman@caveman":false}}'
+    [ "$(worker_trim_of "$launch")" = "$want" ] \
+      || fail "claude $kind launch did not carry the start-prompt trim: $(launch_settings_json "$launch")"
+  done
+
+  id=trim-absent-z36
+  rec=$(make_spawn_case trim-absent claude "$id")
+  read_case_record "$rec"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "claude spawn without the plugin file should succeed"$'\n'"$out"
+  [ "$(worker_trim_of "$(cat "$LAUNCH_LOG")")" = '{"skillListingBudgetFraction":0.004,"enabledPlugins":null}' ] \
+    || fail "an absent plugin file must leave enabledPlugins out: $(launch_settings_json "$(cat "$LAUNCH_LOG")")"
+
+  spawn_claude_secondmate_case trim-secondmate trim-secondmate-z37 claude-worker-plugins-off superpowers@claude-plugins-official
+  launch=$(cat "$LAUNCH_LOG")
+  [ "$(worker_trim_of "$launch")" = '{"skillListingBudgetFraction":null,"enabledPlugins":null}' ] \
+    || fail "a secondmate launch must keep its plugins and full skill listing: $(launch_settings_json "$launch")"
+  [ "$(cat "$CASE_DIR/secondmate-home/config/claude-worker-plugins-off")" = superpowers@claude-plugins-official ] \
+    || fail "the secondmate home did not inherit config/claude-worker-plugins-off"
+  pass "claude ship and scout launches carry the start-prompt trim; a secondmate keeps its plugins and listing but inherits the file"
+}
+
+test_claude_worker_plugins_off_invalid_refuses_before_endpoint_or_metadata() {
+  local rec id out status value n=0
+  for value in superpowers 'bad"name@market' '@caveman' 'a@b@c'; do
+    n=$((n + 1))
+    id="trim-invalid-$n-z38"
+    rec=$(make_spawn_case "trim-invalid-$n" claude "$id")
+    read_case_record "$rec"
+    printf '%s\n' "$value" > "$HOME_DIR/config/claude-worker-plugins-off"
+    out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+    status=$?
+    expect_code 1 "$status" "claude-worker-plugins-off line '$value' must refuse the spawn"
+    assert_contains "$out" "config/claude-worker-plugins-off holds '$value'" "refusal must name the file and the offending line"
+    [ ! -s "$LAUNCH_LOG" ] || fail "an invalid plugin line must launch nothing (got: $(cat "$LAUNCH_LOG"))"
+    assert_absent "$HOME_DIR/state/$id.meta" "refusal must happen before meta is written"
+  done
+  pass "a malformed config/claude-worker-plugins-off line refuses before any endpoint or metadata"
 }
 
 test_active_dispatch_profile_does_not_block_secondmate_launch() {
@@ -2249,7 +2328,7 @@ claude_expected_launch() {  # <launch> <home> <id> <permission-flag>
   [ "$(printf '%s' "$doorbell" | "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
     || doorbell="not a launch-brief doorbell"
   quoted="'$(printf '%s' "$doorbell" | sed "s/'/'\\\\''/g")'"
-  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$2" "$3")$(fm_test_launch_git_prefix "$1")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false},\"remoteControlAtStartup\":false,\"permissions\":{\"defaultMode\":\"$mode\"},\"autoCompactWindow\":300000}' --name 'worker · $3' --plugin-dir '$ROOT/.claude/mods/firstmate-herdr-state' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$2" "$3")$(fm_test_launch_git_prefix "$1")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false},\"remoteControlAtStartup\":false,\"permissions\":{\"defaultMode\":\"$mode\"},\"autoCompactWindow\":300000,\"skillListingBudgetFraction\":0.004}' --name 'worker · $3' --plugin-dir '$ROOT/.claude/mods/firstmate-herdr-state' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
 }
 
 test_claude_permission_mode_bypass_matches_absent_launch() {
@@ -2448,9 +2527,11 @@ test_claude_crewmate_launch_carries_the_attribution_policy
 test_keep_ai_trailers_omits_attribution_settings_and_strip_hooks
 test_keep_ai_trailers_reaches_secondmate_crew_launches
 test_claude_secondmate_launch_carries_the_attribution_policy
-test_claude_compact_window_reaches_workers_not_secondmates
+test_claude_compact_window_reaches_workers_and_secondmates
 test_claude_compact_window_config_overrides_or_inherits
 test_claude_compact_window_invalid_refuses_before_endpoint_or_metadata
+test_claude_worker_start_prompt_trim_reaches_workers_not_secondmates
+test_claude_worker_plugins_off_invalid_refuses_before_endpoint_or_metadata
 test_active_dispatch_profile_does_not_block_secondmate_launch
 
 echo "# all fm-spawn-dispatch-profile tests passed"

@@ -410,17 +410,33 @@
 #   secondmate reads this launching home's file; pins are never inherited.
 #   bin/fm-worker-account-lib.sh owns parsing, the check, and the shed list.
 # Claude worker compact window (config/claude-compact-window):
-#   Claude ship and scout launches carry "autoCompactWindow" in their inline
-#   --settings JSON, so the worker and the helper subagents it runs in the same
-#   process compact at that context size instead of the captain's user-scope
-#   value. Flag settings outrank user, project, and local settings, and the
-#   key is never exported, so a validation gate or other separately launched
-#   claude keeps its own window. Absent file: FM_CLAUDE_COMPACT_WINDOW_DEFAULT
-#   (300000). The file's whitespace-trimmed token is either an integer from
-#   100000 to 1000000, which replaces the default, or `inherit`, which omits the
-#   key so workers follow the captain's own settings. Any other value refuses
-#   the spawn before any mutation. Secondmate launches never carry the key.
-#   Read on every spawn and relaunch; inherited into secondmate homes.
+#   Claude ship, scout, and secondmate launches carry "autoCompactWindow" in
+#   their --settings value (inline JSON for a ship or scout, the
+#   state/<id>.claude-settings.json file for a secondmate), so the session and
+#   the helper subagents it runs in the same process compact at that context
+#   size instead of the captain's user-scope value. Flag settings outrank user,
+#   project, and local settings, and the key is never exported, so a validation
+#   gate or other separately launched claude keeps its own window. Absent file:
+#   FM_CLAUDE_COMPACT_WINDOW_DEFAULT (300000). The file's whitespace-trimmed
+#   token is either an integer from 100000 to 1000000, which replaces the
+#   default, or `inherit`, which omits the key so every launch follows the
+#   captain's own settings. Any other value refuses the spawn before any
+#   mutation. Read on every spawn and relaunch; inherited into secondmate homes.
+# Claude worker start-prompt trim (config/claude-worker-plugins-off):
+#   Claude ship and scout launches also carry "skillListingBudgetFraction"
+#   FM_CLAUDE_SKILL_LISTING_FRACTION (0.004, against Claude Code's 0.01
+#   default) in their inline --settings JSON, so the skill listing sent on
+#   every call shrinks: skill names all stay listed and invocable, and only
+#   the least-used descriptions are dropped. The optional
+#   config/claude-worker-plugins-off lists Claude plugins, one
+#   `<plugin>@<marketplace>` per line (blank lines and `#` comments ignored),
+#   that the same JSON turns off through "enabledPlugins" with false values,
+#   which also drops those plugins' skills, agents, and SessionStart and
+#   prompt hook injections from the worker and its helper subagents. Absent or
+#   empty: no enabledPlugins key. Any other line refuses the spawn before any
+#   mutation. Secondmate launches carry neither key, because supervision
+#   relies on full skill descriptions. Read on every spawn and relaunch;
+#   inherited into secondmate homes.
 #   Launch templates live in launch_template() below; placeholders replaced before launch:
 #     __BRIEF__    absolute path to data/<task-id>/brief.md
 #     __CLAUDEPERMFLAG__ the claude permission flag selected by config/claude-permission-mode
@@ -431,8 +447,8 @@
 #                  JSON object for a crewmate or scout, or a quoted path to
 #                  state/<task-id>.claude-settings.json for a secondmate; it
 #                  turns Remote Control on for a secondmate, or off (with the
-#                  matching defaultMode and the worker autoCompactWindow) for a
-#                  ship or scout
+#                  matching defaultMode and the start-prompt trim) for a ship
+#                  or scout; both carry the autoCompactWindow
 #     __CLAUDENAME__ quoted claude --name display name for the launch kind
 #                  (`2nd mate · <id>`, `worker · <id>`, `scout · <id>`)
 #     __CLAUDESTATEMOD__ quoted path of the tracked firstmate-herdr-state mod
@@ -734,6 +750,31 @@ if [ "$CLAUDE_COMPACT_PRESENT" = 1 ]; then
 fi
 CLAUDE_COMPACT_SETTING=
 [ "$CLAUDE_COMPACT_WINDOW" = inherit ] || CLAUDE_COMPACT_SETTING=",\"autoCompactWindow\":$CLAUDE_COMPACT_WINDOW"
+# Claude worker start-prompt trim (header above): config/claude-worker-plugins-off
+# is resolved before any mutation for the same reason.
+FM_CLAUDE_SKILL_LISTING_FRACTION=0.004
+if ! CLAUDE_PLUGINS_OFF_PRESENT=$(fm_config_source_present "$CONFIG/claude-worker-plugins-off"); then
+  exit 1
+fi
+CLAUDE_PLUGINS_OFF_JSON=
+if [ "$CLAUDE_PLUGINS_OFF_PRESENT" = 1 ]; then
+  if [ ! -f "$CONFIG/claude-worker-plugins-off" ] || [ ! -r "$CONFIG/claude-worker-plugins-off" ]; then
+    echo "error: config/claude-worker-plugins-off must be a readable regular file listing one <plugin>@<marketplace> per line" >&2
+    exit 1
+  fi
+  while IFS= read -r plugin_line || [ -n "$plugin_line" ]; do
+    plugin_line=${plugin_line%%#*}
+    plugin_line=$(printf '%s' "$plugin_line" | tr -d '[:space:]')
+    [ -n "$plugin_line" ] || continue
+    if ! printf '%s\n' "$plugin_line" | grep -Eqx '[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9._-]*'; then
+      echo "error: config/claude-worker-plugins-off holds '$plugin_line'; each line must name one Claude plugin as <plugin>@<marketplace>, such as superpowers@claude-plugins-official" >&2
+      exit 1
+    fi
+    CLAUDE_PLUGINS_OFF_JSON="$CLAUDE_PLUGINS_OFF_JSON${CLAUDE_PLUGINS_OFF_JSON:+,}\"$plugin_line\":false"
+  done <"$CONFIG/claude-worker-plugins-off"
+fi
+CLAUDE_WORKER_TRIM_SETTING=",\"skillListingBudgetFraction\":$FM_CLAUDE_SKILL_LISTING_FRACTION"
+[ -z "$CLAUDE_PLUGINS_OFF_JSON" ] || CLAUDE_WORKER_TRIM_SETTING="$CLAUDE_WORKER_TRIM_SETTING,\"enabledPlugins\":{$CLAUDE_PLUGINS_OFF_JSON}"
 SUB_HOME_MARKER=".fm-secondmate-home"
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   fm_backlog_directory_present "$STATE" "state directory" || {
@@ -2281,8 +2322,8 @@ launch_template() {
   # Claude Code's --settings flag takes one value, a file path or an inline
   # JSON string (https://code.claude.com/docs/en/cli-reference). A secondmate's
   # busy hooks share that value, in state/<id>.claude-settings.json, and the
-  # file also carries feedbackDrafts and attribution so those session keys
-  # stay in force.
+  # file also carries feedbackDrafts, attribution, and the compact window so
+  # those session keys stay in force.
   # The same JSON sets remoteControlAtStartup, which outranks the captain's
   # user-scope setting either way: true for a secondmate, which the captain
   # may talk to from the Claude app, and false for a ship or scout, so
@@ -5001,6 +5042,9 @@ BUSY_GEN=
       if [ "$KEEP_AI_TRAILERS" != 1 ]; then
         session_keys='"feedbackDrafts":"off","remoteControlAtStartup":true,"attribution":{"commit":"","pr":"","sessionUrl":false},'
       fi
+      # The compact window (header "Claude worker compact window") caps the
+      # mate's context too; the start-prompt trim stays worker-only.
+      session_keys="${session_keys}${CLAUDE_COMPACT_SETTING#,}${CLAUDE_COMPACT_SETTING:+,}"
       printf '{%s%s}\n' "$session_keys" "$hooks_json" >"$STATE_REAL/$ID.claude-settings.json"
     else
       mkdir -p "$WT/.claude"
@@ -5604,9 +5648,10 @@ case "$LAUNCH" in
     LAUNCH=${LAUNCH//__CLAUDESETTINGS__/$(shell_quote "$STATE_REAL/$ID.claude-settings.json")}
   else
     # Remote Control off and the matching defaultMode (launch_template() above
-    # owns the reason), plus the worker compact window (header "Claude worker
-    # compact window").
-    claude_settings="'{\"feedbackDrafts\":\"off\"__CLAUDEATTRIBUTION__,\"remoteControlAtStartup\":false,\"permissions\":{\"defaultMode\":\"$CLAUDE_PERM_DEFAULT_MODE\"}$CLAUDE_COMPACT_SETTING}'"
+    # owns the reason), plus the worker compact window and start-prompt trim
+    # (headers "Claude worker compact window" and "Claude worker start-prompt
+    # trim").
+    claude_settings="'{\"feedbackDrafts\":\"off\"__CLAUDEATTRIBUTION__,\"remoteControlAtStartup\":false,\"permissions\":{\"defaultMode\":\"$CLAUDE_PERM_DEFAULT_MODE\"}$CLAUDE_COMPACT_SETTING$CLAUDE_WORKER_TRIM_SETTING}'"
     LAUNCH=${LAUNCH//__CLAUDESETTINGS__/$claude_settings}
   fi
   case "$KIND" in
