@@ -1,6 +1,7 @@
 // firstmate-usage-line under `claude plugin test`: the line is read from
 // `$.session.usage()` after each completed main-loop answer and never holds the turn.
-// The test kit has no store beneath `$.session.append`, so the append itself is
+// The world's `$.session.append` hook passes each row through to the test kit
+// (Claude Code 2.1.306 skips a hook that answers without `next`); the stored row is
 // proven live (tests/fm-usage-line-mod-live-e2e.test.sh) and its notice shape here.
 import type { On } from "claude-code";
 import { describe, expect, test } from "claude-code/testing";
@@ -22,7 +23,7 @@ function world(on: On, usage: "fail" | typeof USAGE = USAGE): { reads: number } 
     journal.reads += 1;
     return usage === "fail" ? { deny: "usage unavailable" } : { value: usage as never };
   });
-  on("session.append", async (_$, e) => ({ message: e.message, uuid: "row-1" }) as never);
+  on("session.append", async (_$, e, next) => next(e));
   return journal;
 }
 

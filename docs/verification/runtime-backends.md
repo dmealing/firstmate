@@ -760,6 +760,14 @@ ok - Claude Code 2.1.292 (Claude Code) stores the usage line as a transcript not
 ok - Claude Code 2.1.292 (Claude Code) never shows the model the usage notice: asked to quote it, the model answered 'NONE'
 ```
 
+Claude Code 2.1.306's `claude plugin test` skips a test hook that answers without calling `next`, so the plugin suite's `$.session.append` stub passes each row through.
+Observed 2026-10-21 with the token-free guard only; the live guard was not rerun:
+
+```text
+ok - Claude Code 2.1.306 (Claude Code) validates the usage-line mod strictly: it hooks only the turn completion and calls only the usage read and the notice append
+ok - Claude Code 2.1.306 (Claude Code) runs the usage-line mod's plugin suites clean: the usage read, subagent turns, failures, and the line text
+```
+
 ## Codex hook trust
 
 Verified 2026-09-16 on codex-cli 0.151.0, macOS arm64, in a fresh linked worktree of this repository.
