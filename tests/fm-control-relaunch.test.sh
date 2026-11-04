@@ -2940,6 +2940,9 @@ test_herdr_relaunch_resumes_only_the_registered_pi_session() {
     }
     dir=$HERDR_CASE_DIR
     rm -f "$dir/fake/herdr-stopped"
+    # A stand-in Pi, as the other Pi cases use, so the case never needs Pi installed.
+    printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n' > "$dir/fakebin/pi"
+    chmod +x "$dir/fakebin/pi"
     sed -i 's/^harness=claude$/harness=pi/' "$dir/home/state/resume-$registered.meta"
     # Keep the pane's status authority registered to an existing Pi session,
     # while process-info proves that its previous agent has exited.

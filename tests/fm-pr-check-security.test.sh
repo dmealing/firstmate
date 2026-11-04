@@ -3592,8 +3592,11 @@ test_teardown_cannot_race_authority_consumption() {
     || fail "teardown race: could not arm the merge poll"
   queue_merge "$dir" "$url"
   archive_away_record "$dir"
+  # The poll holds its lifecycle lock for the fake state read, so teardown must
+  # reach its lock check inside that hold; a loaded host takes about 0.65s, so
+  # the hold leaves headroom while the poll still fits the 3s check bound.
   FM_TEST_GH_STATE_STARTED="$dir/poll-started" FM_TEST_GH_STATE=MERGED \
-    FM_TEST_GH_SLEEP=0.5 FM_TEST_CHECK_TIMEOUT=3 \
+    FM_TEST_GH_SLEEP=1.5 FM_TEST_CHECK_TIMEOUT=3 \
     run_watcher_bounded "$dir/home" "$dir/fakebin" \
       > "$dir/watch.out" 2> "$dir/watch.err" &
   watcher_pid=$!
