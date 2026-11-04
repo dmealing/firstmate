@@ -42,6 +42,8 @@ write_rex_fake_cli() {
 $dline
 EOF
   cat >> "$bin" <<'SH'
+# Every label key is spelled label: .label because jq 1.6 parses a bare
+# label key as its keyword.
 S="$D/state.json"
 [ -f "$S" ] || printf '{"sessions":[]}' >"$S"
 { printf 'rex'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'; } >>"$D/log"
@@ -127,16 +129,16 @@ case "$cmd:$sub" in
       "$(cat "$D/exit-empty" 2>/dev/null || printf 'false')" ;;
   ls:)
     [ ! -f "$D/ls-fail" ] || exit 1
-    jq -c '{sessions: [.sessions[] | {session_id, label}]}' "$S" ;;
+    jq -c '{sessions: [.sessions[] | {session_id, label: .label}]}' "$S" ;;
   api:call)
     case "$p0" in
       server.status) printf '{"api_revision":%s}\n' "$(cat "$D/server-api" 2>/dev/null || printf '%s' "${FM_REX_FAKE_SERVER_API:-5}")" ;;
       session.view)
         has_session "$sid" || notfound "session"
         jq -c --arg s "$sid" '.sessions[] | select(.session_id == $s)
-          | if ((.windows // []) | length) == 0 then {session_id, label}
-            else {session_id, label, windows: [.windows[] | {window_id, label,
-              layers: [{blocks: [.blocks[] | {block_id, label}]}]}]} end' "$S" ;;
+          | if ((.windows // []) | length) == 0 then {session_id, label: .label}
+            else {session_id, label: .label, windows: [.windows[] | {window_id, label: .label,
+              layers: [{blocks: [.blocks[] | {block_id, label: .label}]}]}]} end' "$S" ;;
       *) exit 2 ;;
     esac ;;
   new:)

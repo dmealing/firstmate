@@ -133,8 +133,8 @@ rex_test_foreign_snapshot() {
   rex_test_cli ls --json | jq -r '.sessions[].session_id' | sort | while IFS= read -r sid; do
     [ -z "$REX_TEST_WORK" ] || ! grep -qxF -- "$sid" "$REX_TEST_WORK/allowed" || continue
     rex_test_cli api call -s "$sid" session.view \
-      | jq -cS '{session_id, label, windows: [.windows[]? | {window_id, label,
-          blocks: [.layers[]?.blocks[]? | {block_id, label}]}]}'
+      | jq -cS '{session_id, label: .label, windows: [.windows[]? | {window_id, label: .label,
+          blocks: [.layers[]?.blocks[]? | {block_id, label: .label}]}]}'
   done
 }
 
