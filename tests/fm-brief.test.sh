@@ -519,6 +519,8 @@ test_no_mistakes_dod_wording() {
   # A bare reference cannot preserve the captain's ask, so the rendered DOD states
   # the self-sufficiency rule and requires referenced material to be resolved into
   # its substance.
+  assert_grep "never at a fixed shared path such as \`/tmp/intent.txt\`" "$brief" \
+    "no-mistakes DOD must keep the intent private to the task"
   assert_grep "The \`--intent\` string you pass must be self-sufficient" "$brief" \
     "no-mistakes DOD must require a self-sufficient --intent string"
   assert_grep "write the substance of the referenced items into \`--intent\`" "$brief" \
