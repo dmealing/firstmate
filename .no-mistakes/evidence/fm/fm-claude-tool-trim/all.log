@@ -1,0 +1,955 @@
+FM_TEST_BEGIN 2026-11-06T14:50:17Z tests/fm-afk-contract.test.sh family=afk expected_gate_skip=none
+ok - the read-back renders the words verbatim beside the expected return, spend cap, and reach line
+ok - words preserve their final newline shape in storage and read-back
+ok - one enter call writes a version 2 record, announces hold-for-return only, reads it back without asking for a go, and every read subcommand reflects it
+ok - entry without --spend records the live worker count, never below the default floor, and an explicit --spend still wins
+ok - the retired propose, confirm, and --proposal inputs are refused by name and write nothing
+ok - enter removes a proposal an older version left behind and records only the new words
+ok - a same-turn entry records never-set words verbatim, adds no authority field, and restates the never-set
+ok - a plain entry records no mandate in one step, and a refresh leaves the standing record untouched
+ok - new words archive the old words and keep the session start
+ok - a failed replacement keeps the standing posture live
+ok - a failed final replacement publication rolls back its superseded archive
+ok - validation and archive refuse damaged words blocks
+ok - a words line that lost its record prefix fails validate, read, read-back, and archive instead of truncating the mandate
+ok - archive keys the record by its entry time, empties the posture, and is idempotent
+ok - malformed inputs and foreign record versions are refused rather than guessed
+ok - retired clause fields, --grant, and the clause and grant subcommands are refused by name
+ok - a version 1 record validates, reads its words and scalars with the clause and grant sections ignored, refreshes untouched, and archives
+ok - new words over a live version 1 record archive it and write version 2 with the same session start
+ok - enter and archive refuse while the record is locked, and proceed once it clears
+ok - a quiet record announces, refreshes, and reads back as a present captain holding nothing, while an away record keeps hold-for-return
+ok - an away entry over quiet mode records away, and a quiet entry never masks a standing away record
+FM_TEST_END 2026-11-06T14:50:26Z tests/fm-afk-contract.test.sh exit=0 duration_ms=8802 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:50:26Z tests/fm-afk-inject-e2e.test.sh family=afk expected_gate_skip=none
+ok - Scenario A: partial input defers injection; digest arrives clean after idle
+ok - Scenario B: swallowed Enter produces exactly one clean digest
+ok - Scenario C: a normal captain status injects exactly one clean single-line sentinel digest
+ok - Scenario D: a claude primary receives one plain doorbell whose record the away-mode return check reads as internal
+all e2e injection tests passed
+FM_TEST_END 2026-11-06T14:51:10Z tests/fm-afk-inject-e2e.test.sh exit=0 duration_ms=44452 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:51:10Z tests/fm-afk-inject-herdr-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - real herdr Scenario A: partial input defers injection; digest arrives clean after idle
+ok - real herdr Scenario B: swallowed Enter (via the herdr shim) produces exactly one clean digest
+ok - real herdr Scenario C: a normal captain status injects exactly one clean single-line sentinel digest
+ok - real herdr Scenario D: a persistently pending composer raises the max-defer wedge alarm, preserves the buffer, and never crashes the daemon
+all real-herdr afk injection e2e tests passed
+FM_TEST_END 2026-11-06T14:52:12Z tests/fm-afk-inject-herdr-e2e.test.sh exit=0 duration_ms=61833 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:52:12Z tests/fm-afk-launch.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - clear-stale: removes escalations buffer, sidecar, wedge marker, and unknown-wake acknowledgements
+ok - clear-stale: leaves the durable wake-queue intact (no pending work dropped)
+ok - enter: one call writes the record with the words, expected return, and spend cap, reads it back without asking for a go, and launches no daemon
+ok - enter: the retired --grant flag is refused by name and leaves the standing record alone
+ok - enter: refuses while the prior return catch-up is pending
+ok - propose: the retired wait-for-go step is refused by name, writes nothing, and releases the launcher lock
+ok - confirm: the retired wait-for-go step is refused by name, writes nothing, and releases the launcher lock
+ok - pi: start refuses to launch the daemon and writes no state
+ok - pi: start-native refuses to prepare a daemon
+ok - pi-signed: start refuses to launch the daemon and writes no state
+ok - pi-signed: start-native refuses to prepare a daemon
+ok - FM_TEST_HARNESS seam is inert without the test marker
+ok - pi enter stop: reports that no daemon terminal was running
+ok - daemon entry: no daemon lifecycle starts without the away-posture record
+ok - daemon entry: enter then start-native run back to back with no confirmation between them
+ok - failed start: preserves the posture record enter wrote
+ok - stop: clears the away flag and archives the posture record under its entry time
+ok - launcher paths: relative home and state ignore CDPATH before daemon command construction
+ok - launcher paths: absolute symlink spellings are preserved
+ok - launcher paths: unresolved relative FM_HOME fails loudly
+ok - launcher paths: unresolved relative FM_STATE_OVERRIDE fails loudly
+ok - refresh: daemon already alive - stale artifacts preserved (current session's buffer kept)
+ok - mode: a fresh entry with FM_AFK_MODE=quiet writes quiet
+ok - mode: a fresh entry with FM_AFK_MODE unset defaults to away
+ok - mode: a bare refresh (FM_AFK_MODE unset) of an already-running quiet daemon preserves quiet, never resets to away
+ok - start: an unset-mode quiet refresh preserves the quiet record and flag
+ok - start: /afk over a running quiet daemon refreshes the flag to away
+ok - start-native: an unset-mode quiet refresh preserves the quiet record and flag
+ok - start-native: /afk over a running quiet daemon refreshes the flag to away
+ok - mode: an empty (legacy pre-mode) flag reads as away
+ok - mode: a bare-epoch-timestamp (legacy pre-mode) flag reads as away
+ok - mode: unrecognized content falls back to away
+ok - mode: a missing flag reads as away
+ok - stop-ordering: daemon SIGTERM'd while .afk still present (flush is not a no-op)
+ok - stop-ordering: .afk cleared last
+ok - stop-ordering: daemon-terminal record removed
+ok - stop identity: stale lock cannot signal an unrelated live process
+ok - failed start: away flag and delivery artifacts roll back
+ok - concurrent start: one serialized daemon terminal remains tracked
+ok - launcher lock: incomplete publication receives initialization grace
+ok - launcher signal: TERM exits and releases the lifecycle lock
+fm-afk-launch: daemon launched in non-visible herdr workspace ws-partial (pane lab:pane-exact), supervising lab:captain
+ok - herdr create: malformed response recovers durable exact ownership
+fm-afk-launch: herdr create failed after returning exact ids; closing lab:pane-exact
+fm-afk-launch: recorded terminal teardown is unconfirmed; preserving exact id
+ok - herdr create error: unconfirmed exact id is persisted for reconciliation
+fm-afk-launch: failed to run daemon in herdr pane lab:pane-exact; closing it
+fm-afk-launch: recorded terminal teardown is unconfirmed; preserving exact id
+ok - herdr run failure: unconfirmed exact id remains reconcilable
+ok - herdr daemon terminal: runs with the captain's primary harness
+ok - tmux daemon terminal: runs with the captain's primary harness
+fm-afk-launch: failed to persist daemon terminal record; closing tmux:exact-session
+ok - record failure: newly created terminal is closed by exact id
+fm-afk-launch: daemon did not become ready; closing tmux:exact-session
+ok - readiness failure: exact terminal and durable record roll back
+fm-afk-launch: daemon did not become ready; closing tmux:exact-session
+fm-afk-launch: recorded terminal teardown is unconfirmed; preserving exact id
+ok - readiness failure: unconfirmed terminal retains its reconciliation id
+ok - tmux absence: clean missing differs from transport probe failure
+ok - native lifecycle: launcher owns state with no terminal
+ok - native lifecycle: uniform stop clears state without closing a terminal
+ok - supervision host: away start-native on a claude home (config file: -) refuses the daemon and keeps the record
+ok - supervision host: away start-native on a claude home (config file: empty) refuses the daemon and keeps the record
+ok - supervision host: quiet start-native and a plain refresh of the quiet daemon still prepare the daemon
+ok - supervision host: config/supervision-host-off keeps the away daemon on a claude home
+ok - supervision host: away mode on an opted-in cursor, opencode, omp, grok, codex, or agy home launches no daemon
+ok - supervision host: enter names a missing engine on an opted-in home and says nothing otherwise
+ok - quiet entry: the daemon-backed quiet record announces a present captain with nothing held for a return
+ok - quiet entry: a later /afk entry turns the quiet record into the away posture, which holds for the return
+ok - supervision host: /quiet is a statement where the attended host runs, and a quiet enter writes nothing there
+ok - supervision host: quiet-check says the supervision session is paused while its latch holds, and starts nothing
+ok - supervision host: quiet-check names what the attended host lacks
+ok - supervision host: an unready host's quiet entry records its mode, which carries the daemon start
+ok - supervision host: /quiet under a live away record refuses and names it until the return
+ok - supervision host: /quiet under a live away record over a fallback quiet daemon refuses until the return
+ok - supervision host: a failed quiet start archives its quiet record so the present captain is not parked
+ok - supervision host: a failed away start keeps its away record
+ok - native entry: launcher-prepared lifecycle state is not rewritten
+fm-afk-launch: reconciling leaked daemon terminal tmux:exact-session
+fm-afk-launch: recorded terminal teardown is unconfirmed; preserving exact id
+ok - teardown failure: exact terminal record is preserved
+ok - record publication: failed atomic rename preserves the complete prior record
+fm-afk-launch: daemon terminal record is malformed; refusing to act on it
+ok - record read: malformed record fails closed without acting on a partial id
+fm-afk-launch: daemon terminal record is malformed; refusing to act on it
+fm-afk-launch: malformed daemon terminal record; refusing to stop away mode
+ok - stop: malformed terminal record preserves away state and fails closed
+fm-afk-launch: failed to create detached tmux daemon session 'fm-afk-daemon-3383029158-672073-24328-1793976775'
+ok - tmux launch: planned exact target is recorded before creation and removed on failure
+fm-afk-launch: failed to create detached tmux daemon session 'fm-afk-daemon-2779776866-672133-6061-1793976775'
+ok - tmux launch: unique names eliminate collision teardown
+ok - stop validation: malformed record causes no daemon or state side effects
+ok - launcher lock: incomplete metadata fails acquisition and releases lock
+fm-afk-launch: failed to clear away-mode flag
+fm-afk-launch: away mode stopped; terminal teardown or the record archive remains recorded for retry
+ok - stop state: away-flag removal failure is surfaced
+fm-afk-launch: away-mode daemon did not exit after SIGTERM; preserving lifecycle state
+ok - stop liveness: captured live daemon preserves lifecycle state after lock release
+fm-afk-launch: an away-posture record is required; run enter before starting the daemon
+fm-afk-launch: an away-posture record is required; run enter before starting the daemon
+ok - refresh record: malformed terminal identity fails closed
+fm-afk-launch: an away-posture record is required; run enter before starting the daemon
+ok - clear failure: native entry aborts and restores prior state
+fm-afk-launch: reconciling leaked daemon terminal tmux:exact-session
+fm-afk-launch: terminal close command failed, but exact absence was confirmed
+ok - confirmed absence: cleanup succeeds and removes the stale record
+fm-afk-launch: rollback restoration incomplete; backup retained at /tmp/fm-afk-restore-fail.9MjInm/state/.afk-launch-backup.fcDOcb
+ok - rollback restore: incomplete restoration retains its recovery backup
+fm-afk-launch: an away-posture record is required; run enter before starting the daemon
+ok - flag failure: lifecycle aborts without active state
+ok - herdr e2e: captain tab pane count unchanged after start (no split)
+ok - herdr e2e: daemon launched in a separate non-visible workspace
+ok - herdr e2e: daemon pane is NOT in the captain's tab
+ok - herdr e2e: daemon terminal scoped to the lab session
+ok - herdr e2e: captain tab pane count restored after stop
+ok - herdr e2e: daemon workspace removed by exact id on stop
+ok - herdr e2e: record + .afk cleared on stop
+ok - tmux e2e: captain window pane count unchanged after start (no split-window)
+ok - tmux e2e: daemon launched in a separate detached session
+ok - tmux e2e: captain window pane count unchanged after stop
+ok - tmux e2e: daemon session killed by exact id on stop
+ok - tmux e2e: record + .afk cleared on stop
+skip: rex CLI not found at $REX_BIN_DIR, on PATH, or at the server bundle path
+skip: Rex CLI or jq unavailable (rex e2e)
+FM_TEST_END 2026-11-06T14:52:57Z tests/fm-afk-launch.test.sh exit=0 duration_ms=44608 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:52:57Z tests/fm-afk-pi-herdr-return-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+skip: live: opt-in; set FM_AFK_PI_HERDR_E2E=1 to run
+fm-test-run: gate skip: tests/fm-afk-pi-herdr-return-e2e.test.sh: live: opt-in; set FM_AFK_PI_HERDR_E2E=1 to run
+FM_TEST_END 2026-11-06T14:52:57Z tests/fm-afk-pi-herdr-return-e2e.test.sh exit=0 duration_ms=484 gate_skip=true
+FM_TEST_BEGIN 2026-11-06T14:52:57Z tests/fm-afk-return.test.sh family=afk expected_gate_skip=none
+ok - return catch-up owns live blocker remediation, reports itself to Bearings as content, preserves evidence once, and clears idempotently
+ok - tmux and Herdr blockers require the same explicit durable reclassification before ordinary work
+ok - needs-decision remains reportable without masquerading as a firstmate-actionable blocker
+ok - AFK return re-drains published wakes until handling acknowledges
+ok - away-mode re-entry fails closed while the prior return catch-up is pending
+ok - /quiet off's return path behaves identically for a quiet-content flag as for a legacy away-content one
+ok - check retries recorded terminal teardown and keeps catch-up gated until success
+ok - an unreadable superseded mandate stays required until its record validates
+ok - the retained contract epoch requires its final archive on every check
+ok - the return brief renders health, the words with the session account, waiting, could-not-fix, handled, and cost from durable records, and the gate shrinks to what the away session could not fix
+ok - the return brief lists landed work whose worker is still up, from the durable merge marker only, without gating on it and never offering a secondmate for teardown
+ok - the return brief points at the drain for branch outcomes on a host home and leaves the read cursor to it, and a Pi home's brief is unchanged
+ok - the all-silent return keeps the outcome stored without promising a drain presentation
+ok - a drain that cannot record its branch-outcome presentation keeps the return's catch-up gated until a check records it
+ok - a refreshed posture keeps its original window, superseded mandate, and earlier outcomes
+ok - a malformed posture record stays live and gates return catch-up
+ok - an epochless malformed record remains required until restored valid
+ok - an unreadable outcome store gates catch-up until a successful reread
+ok - an unavailable held listing gates catch-up until a successful reread
+ok - an unreadable status stays private and gates until a successful reread
+ok - a status-file-less leftover record gates return; a readable status on that same record is the proven path that passes
+ok - a leftover record with a readable status file lets return catch-up clear
+ok - the read-only guard treats the away-posture record as active away mode without the legacy flag
+ok - the return brief leads with supervisor health and names every detected gap
+ok - the return brief does not report an already-acked watcher-down marker as an open gap
+ok - the return brief reports a wake mid-handling at return as information, and only an open downtime episode as a gap
+ok - the return brief's failures section names an engine latch inside the away window with its time, error count, and cooldown state
+ok - a lost second trip append does not attach the current pause to a recovered episode
+ok - a recovered row preceding the stale retry time does not invent a second trip
+ok - a later failed probe does not change the trip-row error count
+ok - the return brief excludes prior-session latch rows
+ok - the return brief retains in-window trips and failed turns across a main restart
+ok - a return with only the legacy away flag still renders the brief and measures the window from the flag
+FM_TEST_END 2026-11-06T14:53:51Z tests/fm-afk-return.test.sh exit=0 duration_ms=53350 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:53:51Z tests/fm-agy-harness.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - fm-harness.sh: ancestry detects a natively-named agy command
+ok - fm-harness.sh: ancestry rejects unrelated agy mentions
+ok - fm-harness.sh: no inherited launcher marker claims the agy identity
+ok - fm-control-lib: agy mechanics are Escape once, no clear key, and /quit
+ok - fm-busy-lib: only the pinned esc-to-cancel row carries the agy busy verdict
+ok - fm-composer-lib: agy delivery signatures never cross harnesses
+ok - fm-busy-lib: agy classifies busy on its marker and unknown without it
+ok - bin/fm-agent-process-lib.sh: agy is an agent, fragments are not
+ok - herdr exit detection: done with a live registry and an agy process view stays live and refuses replacement
+ok - herdr exit detection: a registered status over a shell-only pane is stale-agent and still refuses closing
+ok - herdr exit detection: a registered pane with an agy foreground stays live however its shell ranks
+ok - herdr exit detection: only a positively unregistered pane is agent-free
+ok - herdr exit detection: malformed and failed reads stay unknown
+ok - fm-spawn: agy launch carries brief, model, effort, and autonomy with cleared markers
+ok - fm-spawn: agy omits xhigh from the launch but records it in task metadata
+ok - fm-spawn: an unlisted agy model refuses before pane creation
+ok - fm-spawn: an unreachable agy listing establishes nothing and launches
+ok - fm-spawn: a hung agy listing is cut off by the shared bound and launches unvalidated
+ok - fm-spawn: a zero FM_AGY_MODELS_TIMEOUT is clamped to the default bound
+ok - fm-agy-trust.sh: registers the logical and resolved worktree paths and preserves the store
+ok - fm-agy-trust.sh: creates agy's settings store when none exists
+ok - fm-agy-trust.sh: refuses every out-of-scope path and never rewrites a broken store
+ok - fm-spawn: agy pre-registers the worktree and launches straight into a busy turn
+ok - fm-spawn: agy answers a dialog that renders anyway exactly once, then confirms busy
+ok - fm-spawn: on an unregistered path a premature busy verdict waits for the dialog to be answered
+ok - fm-spawn: a busy verdict on an unregistered path without a dialog fails and closes the endpoint
+ok - fm-spawn: an agy dialog that never turns busy fails the spawn and closes the endpoint
+ok - fm-spawn: a missing agy executable refuses before pane creation
+ok - fm-spawn: agy secondmate pre-trusts the secondmate home and records kind=secondmate
+ok - fm-spawn: agy arms no busy wiring and writes no sidecar
+FM_TEST_END 2026-11-06T14:54:39Z tests/fm-agy-harness.test.sh exit=0 duration_ms=48888 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:54:39Z tests/fm-agy-primary-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+skip: live: opt-in; set FM_AGY_PRIMARY_LIVE=1 to run
+fm-test-run: gate skip: tests/fm-agy-primary-live-e2e.test.sh: live: opt-in; set FM_AGY_PRIMARY_LIVE=1 to run
+FM_TEST_END 2026-11-06T14:54:40Z tests/fm-agy-primary-live-e2e.test.sh exit=0 duration_ms=184 gate_skip=true
+FM_TEST_BEGIN 2026-11-06T14:54:40Z tests/fm-agy-primary.test.sh family=watcher-wake-lock expected_gate_skip=none
+1..14
+ok - .agents/hooks.json: valid JSON and hook commands resolve from both .agents/ and repo root
+warning: re-init: ignored --initial-branch=main
+ok - fm-sessionstart-agy: runs in primary and seeded secondmate homes, stands down with {} in crewmate worktree
+ok - fm-turnend-guard-agy: actionable arm close returns continue decision and resets turnend-blocks
+ok - fm-turnend-guard-agy: an opted-in home parks on the supervision host with the agy pin
+ok - fm-turnend-guard-agy: park timeout stops the arm and returns continue with [supervision-park]
+ok - fm-turnend-guard-agy: returns {} when the fleet is empty or a healthy watcher owns the home
+ok - fm-turnend-guard-agy: non-normal terminationReason values pass through with {}
+ok - fm-turnend-guard-agy: the loop ceiling notifies once while supervision is needed, then passes through
+ok - fm-turnend-guard-agy: superseded park owner returns {}
+ok - fm-turnend-guard --agy & fm-turnend-guard-agy: bounded repair nag blocks 3 times then fails open with {}
+ok - fm-arm-pretool-check --agy: denies through the shared policy and allows ordinary commands
+warning: re-init: ignored --initial-branch=main
+ok - fm-cd-pretool-check --agy: denies persistent cd in primary, allows subshell cd, inert in worktree
+warning: re-init: ignored --initial-branch=main
+ok - fm-subagent-pretool-check --agy: denies invoke_subagent, allows observe-only tools, inert in worktree
+ok - session-lock & supervision model: agy ancestry, autoarm model, and supervision instructions verified
+FM_TEST_COMPLETE
+FM_TEST_END 2026-11-06T14:55:32Z tests/fm-agy-primary.test.sh exit=0 duration_ms=52727 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:55:32Z tests/fm-agy-signals-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+skip: live: opt-in; set FM_AGY_SIGNALS_LIVE=1 to run
+fm-test-run: gate skip: tests/fm-agy-signals-live-e2e.test.sh: live: opt-in; set FM_AGY_SIGNALS_LIVE=1 to run
+FM_TEST_END 2026-11-06T14:55:33Z tests/fm-agy-signals-live-e2e.test.sh exit=0 duration_ms=231 gate_skip=true
+FM_TEST_BEGIN 2026-11-06T14:55:33Z tests/fm-approval-failover.test.sh family=unclassified expected_gate_skip=none
+ok - codex refuses gate callers before configuration, lease or lifecycle mutation
+ok - codex permits disposable lab recovery only through its stock layout
+ok - codex publishes a single-linked setting before interrupt and relaunch
+error: config/codex-approval-mode already exists; nothing overwritten
+ok - codex writes once and relaunches through the lifecycle owner
+error: config/codex-approval-mode already exists; nothing overwritten
+error: config/codex-approval-mode already exists; nothing overwritten
+error: config/codex-approval-mode already exists; nothing overwritten
+error: config/codex-approval-mode already exists; nothing overwritten
+error: config/codex-approval-mode already exists; nothing overwritten
+error: config/codex-approval-mode already exists; nothing overwritten
+ok - codex preserves explicit files, invalid values, empty files, links and directories
+File exists
+error: could not publish config/codex-approval-mode; nothing overwritten
+File exists
+error: could not publish config/codex-approval-mode; nothing overwritten
+File exists
+error: could not publish config/codex-approval-mode; nothing overwritten
+ok - codex atomically preserves concurrent explicit destinations
+ok - codex honors live leases before saving and releases its guard before child control
+error: the recorded launch did not use bypass; nothing changed
+error: invoke failover in the remote worker owning home
+ok - codex needs no detector state and refuses contradictory or remote records
+ok - codex refuses a t3code task before saving a fallback T3 cannot honor
+ok - codex keeps the setting while reporting incomplete recovery
+ok - claude refuses gate callers before configuration, lease or lifecycle mutation
+ok - claude permits disposable lab recovery only through its stock layout
+ok - claude publishes a single-linked setting before interrupt and relaunch
+error: config/claude-permission-mode already exists; nothing overwritten
+ok - claude writes once and relaunches through the lifecycle owner
+error: config/claude-permission-mode already exists; nothing overwritten
+error: config/claude-permission-mode already exists; nothing overwritten
+error: config/claude-permission-mode already exists; nothing overwritten
+error: config/claude-permission-mode already exists; nothing overwritten
+error: config/claude-permission-mode already exists; nothing overwritten
+error: config/claude-permission-mode already exists; nothing overwritten
+ok - claude preserves explicit files, invalid values, empty files, links and directories
+File exists
+error: could not publish config/claude-permission-mode; nothing overwritten
+File exists
+error: could not publish config/claude-permission-mode; nothing overwritten
+File exists
+error: could not publish config/claude-permission-mode; nothing overwritten
+ok - claude atomically preserves concurrent explicit destinations
+ok - claude honors live leases before saving and releases its guard before child control
+error: the recorded launch did not use bypass; nothing changed
+error: invoke failover in the remote worker owning home
+ok - claude needs no detector state and refuses contradictory or remote records
+ok - claude refuses a t3code task before saving a fallback T3 cannot honor
+ok - claude keeps the setting while reporting incomplete recovery
+ok - codex-approval-mode follows primary values and absence locally and remotely
+ok - claude-permission-mode follows primary values and absence locally and remotely
+# all fm-approval-failover tests passed
+FM_TEST_END 2026-11-06T14:55:57Z tests/fm-approval-failover.test.sh exit=0 duration_ms=24005 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:55:57Z tests/fm-arm-pretool-check.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - matrix A01: allow through all five entry forms
+ok - matrix A02: allow through all five entry forms
+ok - matrix A03: allow through all five entry forms
+ok - matrix A04: allow through all five entry forms
+ok - matrix A05: allow through all five entry forms
+ok - matrix A06: allow through all five entry forms
+ok - matrix A07: allow through all five entry forms
+ok - matrix A08: allow through all five entry forms
+ok - matrix A09: allow through all five entry forms
+ok - matrix A10: allow through all five entry forms
+ok - matrix A11: allow through all five entry forms
+ok - matrix A12: allow through all five entry forms
+ok - matrix A13: allow through all five entry forms
+ok - matrix A14: allow through all five entry forms
+ok - matrix A15: allow through all five entry forms
+ok - matrix A16: allow through all five entry forms
+ok - matrix A17: allow through all five entry forms
+ok - matrix R01: allow through all five entry forms
+ok - matrix R02: allow through all five entry forms
+ok - matrix R03: allow through all five entry forms
+ok - matrix R04: allow through all five entry forms
+ok - matrix R05: allow through all five entry forms
+ok - matrix R06: allow through all five entry forms
+ok - matrix R07: allow through all five entry forms
+ok - matrix R08: allow through all five entry forms
+ok - matrix R09: allow through all five entry forms
+ok - matrix R10: allow through all five entry forms
+ok - matrix R11: allow through all five entry forms
+ok - matrix R12: allow through all five entry forms
+ok - matrix R13: allow through all five entry forms
+ok - matrix R14: allow through all five entry forms
+ok - matrix R15: allow through all five entry forms
+ok - matrix R16: allow through all five entry forms
+ok - matrix R17: allow through all five entry forms
+ok - matrix R18: allow through all five entry forms
+ok - matrix R19: allow through all five entry forms
+ok - matrix R20: allow through all five entry forms
+ok - matrix R21: allow through all five entry forms
+ok - matrix D01: deny through all five entry forms
+ok - matrix D02: deny through all five entry forms
+ok - matrix D03: deny through all five entry forms
+ok - matrix D04: deny through all five entry forms
+ok - matrix D05: deny through all five entry forms
+ok - matrix D06: deny through all five entry forms
+ok - matrix D07: deny through all five entry forms
+ok - matrix D08: deny through all five entry forms
+ok - matrix D09: deny through all five entry forms
+ok - matrix D10: deny through all five entry forms
+ok - matrix D11: deny through all five entry forms
+ok - matrix D12: deny through all five entry forms
+ok - matrix D13: deny through all five entry forms
+ok - matrix D14: deny through all five entry forms
+ok - matrix D15: deny through all five entry forms
+ok - matrix D16: deny through all five entry forms
+ok - matrix D17: deny through all five entry forms
+ok - matrix D18: deny through all five entry forms
+ok - matrix D19: deny through all five entry forms
+ok - matrix D20: deny through all five entry forms
+ok - matrix D21: deny through all five entry forms
+ok - matrix D22: deny through all five entry forms
+ok - matrix D23: deny through all five entry forms
+ok - matrix D24: deny through all five entry forms
+ok - matrix D25: deny through all five entry forms
+ok - matrix D26: deny through all five entry forms
+ok - matrix D27: deny through all five entry forms
+ok - matrix D28: deny through all five entry forms
+ok - matrix D29: deny through all five entry forms
+ok - matrix D30: deny through all five entry forms
+ok - matrix D31: deny through all five entry forms
+ok - matrix D32: deny through all five entry forms
+ok - matrix D33: deny through all five entry forms
+ok - matrix D34: deny through all five entry forms
+ok - matrix D35: deny through all five entry forms
+ok - matrix D36: deny through all five entry forms
+ok - matrix D37: deny through all five entry forms
+ok - matrix D38: deny through all five entry forms
+ok - matrix D39: deny through all five entry forms
+ok - matrix D40: deny through all five entry forms
+ok - matrix D41: deny through all five entry forms
+ok - matrix D42: deny through all five entry forms
+ok - matrix D43: deny through all five entry forms
+ok - matrix D44: deny through all five entry forms
+ok - matrix D45: deny through all five entry forms
+ok - matrix D46: deny through all five entry forms
+ok - matrix D47: deny through all five entry forms
+ok - matrix D48: deny through all five entry forms
+ok - matrix D49: deny through all five entry forms
+ok - matrix D50: deny through all five entry forms
+ok - matrix D51: deny through all five entry forms
+ok - matrix D52: deny through all five entry forms
+ok - matrix D53: deny through all five entry forms
+ok - matrix D54: deny through all five entry forms
+ok - matrix D55: deny through all five entry forms
+ok - matrix D56: deny through all five entry forms
+ok - matrix D57: deny through all five entry forms
+ok - matrix D58: deny through all five entry forms
+ok - matrix D59: deny through all five entry forms
+ok - matrix D60: deny through all five entry forms
+ok - matrix D61: deny through all five entry forms
+ok - matrix D62: deny through all five entry forms
+ok - matrix D63: deny through all five entry forms
+ok - matrix D64: deny through all five entry forms
+ok - matrix D65: deny through all five entry forms
+ok - matrix E01: allow through all five entry forms
+ok - matrix E02: allow through all five entry forms
+ok - matrix E03: allow through all five entry forms
+ok - matrix E04: allow through all five entry forms
+ok - matrix E05: deny through all five entry forms
+ok - matrix E06: deny through all five entry forms
+ok - matrix E07: deny through all five entry forms
+ok - matrix E08: deny through all five entry forms
+ok - matrix E09: deny through all five entry forms
+ok - matrix E10: deny through all five entry forms
+ok - matrix E11: deny through all five entry forms
+ok - matrix E12: allow through all five entry forms
+ok - matrix E13: allow through all five entry forms
+ok - matrix E14: allow through all five entry forms
+ok - matrix E15: allow through all five entry forms
+ok - matrix E16: allow through all five entry forms
+ok - matrix E17: allow through all five entry forms
+ok - direct policy direct-data-pkill: allow
+ok - direct policy direct-broad-pkill: deny	broad-watcher-kill
+ok - direct policy direct-loop-broad-pkill: deny	broad-watcher-kill
+ok - direct policy direct-loop-broad-kill-pgrep: deny	broad-watcher-kill
+ok - direct policy direct-loop-no-kill-allowed: allow
+ok - direct policy direct-pipeline: deny	watcher-pipeline
+ok - direct policy direct-leading-redirection: deny	watcher-redirection
+ok - direct policy direct-unclassifiable: deny	unclassifiable-protected-command
+ok - direct policy direct-unsupported: deny	unclassifiable-protected-command
+ok - direct policy direct-constructed-payload: deny	watcher-nested
+ok - direct policy direct-parameter-export: allow
+ok - direct policy direct-expanded-arm-blessed: allow
+ok - direct policy direct-expanded-arm-background: deny	watcher-background
+ok - direct policy direct-expanded-arm-pipeline: deny	watcher-pipeline
+ok - direct policy direct-watch-not-blessed: deny	watcher-direct
+ok - direct policy direct-watch-expanded: deny	watcher-direct
+ok - direct policy direct-watch-safe-shape: deny	watcher-direct
+ok - direct policy direct-heredoc-data: allow
+ok - direct policy direct-heredoc-watcher: deny	watcher-redirection
+ok - --command=<val> equals-form parses correctly
+ok - --background is accepted for interface parity and is never itself a deny signal
+ok - unknown CLI flag is rejected
+ok - stdin grok schema (toolInput.command): denied with Grok-shaped stdout JSON
+ok - stdin claude/codex schema (tool_input.command): blessed shape allowed
+ok - stdin claude/codex schema (tool_input.command): backgrounded shape denied
+ok - stdin: unrelated command is a fast allow
+ok - transport prefilter is a strict superset: non-fm-watch fast-allows, every fm-watch and quoting-decoder-marker command reaches the classifier
+ok - fail-open: empty stdin
+ok - fail-open: unparseable JSON on stdin
+ok - fail-open: missing jq on stdin path
+ok - fail-open: missing classifier runtime
+ok - --claude: stdout empty, stderr carries hookSpecificOutput deny JSON
+ok - default mode: stdout carries Grok-shaped decision JSON on deny
+ok - allow is silent on both stdout and stderr in default and --claude mode
+ok - bin/fm-arm-pretool-check.sh is clean under bin/fm-lint.sh
+FM_TEST_END 2026-11-06T14:56:34Z tests/fm-arm-pretool-check.test.sh exit=0 duration_ms=36807 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:56:34Z tests/fm-ask-user-authority.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - primary workers and secondmates receive the authority rule through generated instructions
+FM_TEST_END 2026-11-06T14:56:34Z tests/fm-ask-user-authority.test.sh exit=0 duration_ms=544 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:56:34Z tests/fm-assertions.test.sh family=unclassified expected_gate_skip=none
+ok - regex absence distinguishes no match from matches and errors
+FM_TEST_END 2026-11-06T14:56:35Z tests/fm-assertions.test.sh exit=0 duration_ms=478 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:56:35Z tests/fm-backend-autodetect-smoke.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - real herdr: fm-spawn.sh auto-detects verified herdr from HERDR_ENV=1 (no explicit config) without an opt-out steer
+ok - real herdr: auto-detected spawn records backend=herdr and herdr_session/workspace/tab/pane fields in meta
+ok - real herdr: the auto-detected spawn's launch command actually ran in the herdr pane
+ok - real herdr: teardown completes the auto-detected spawn/teardown cycle (meta cleared, pane closed)
+ok - real herdr: isolated lab session removed and default fleet session unchanged
+FM_TEST_END 2026-11-06T14:56:46Z tests/fm-backend-autodetect-smoke.test.sh exit=0 duration_ms=11484 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:56:46Z tests/fm-backend-cmux-smoke.test.sh family=cmux expected_gate_skip=optional-binary
+skip: cmux CLI not found on PATH or at the bundle path
+fm-test-run: gate skip: tests/fm-backend-cmux-smoke.test.sh: cmux CLI not found on PATH or at the bundle path
+FM_TEST_END 2026-11-06T14:56:46Z tests/fm-backend-cmux-smoke.test.sh exit=0 duration_ms=20 gate_skip=true
+FM_TEST_BEGIN 2026-11-06T14:56:46Z tests/fm-backend-cmux.test.sh family=cmux expected_gate_skip=optional-binary
+ok - fm_backend_cmux_version_check: accepts the verified minimum (0.64.17)
+ok - fm_backend_cmux_version_check: accepts a newer version (0.70.0)
+ok - fm_backend_cmux_version_check: refuses an old version loudly
+ok - fm_backend_cmux_version_check: refuses loudly when cmux is not found on PATH or at the bundle path
+ok - fm_backend_cmux_password: reads the first non-empty line of config/cmux-socket-password
+ok - fm_backend_cmux_password: preserves spaces and tabs in config/cmux-socket-password
+ok - fm_backend_cmux_password: respects FM_CONFIG_OVERRIDE
+ok - fm_backend_cmux_password: empty when config/cmux-socket-password is absent
+ok - fm_backend_cmux_cli: exports CMUX_SOCKET_PASSWORD when config/cmux-socket-password is set
+ok - fm_backend_cmux_parse_target: splits '<workspace_uuid>:<surface_uuid>' on the first colon
+ok - fm_backend_cmux_normalize_key: Enter/Escape/C-c map to cmux's verified enter/escape/ctrl-c
+ok - fm_backend_cmux_scoped_title: scopes a primary task title with firstmate plus root hash
+ok - fm_backend_cmux_scoped_title: scopes a secondmate task title with the home marker plus root hash
+ok - fm_backend_cmux_scoped_title: includes the resolved FM_ROOT hash in the home label
+ok - fm_backend_validate: cmux is a known backend
+ok - fm_backend_busy_state: cmux (no native primitive) always reports unknown, same as tmux/zellij/orca
+ok - fm_backend_composer_state: routes cmux to the cmux composer classifier
+ok - fm_backend_cmux_ping_state: reports 'ok' on PONG
+ok - fm_backend_cmux_ping_state: reports 'denied' when socketControlMode=cmuxOnly rejects the connection
+ok - fm_backend_cmux_ping_state: reports 'unauth' when password mode rejects a missing/wrong password
+ok - fm_backend_cmux_ping_state: reports 'unauth' when password mode rejects a wrong password (Invalid password)
+ok - fm_backend_cmux_ping_state: reports 'down' when the app is not running yet
+ok - fm_backend_cmux_ensure_running: returns immediately when cmux is already reachable
+ok - fm_backend_cmux_ensure_running: fails fast on a denied socket without attempting to launch, naming every viable mode
+ok - fm_backend_cmux_ensure_running: fails fast on an unauthenticated socket, naming the password config and the Automation mode alternative
+ok - fm_backend_cmux_create_task: refuses a duplicate workspace title (cmux's own new-workspace has no uniqueness check)
+ok - fm_backend_cmux_create_task: creates a workspace and parses workspace_id/surface_id from list responses
+ok - fm_backend_cmux_target_ready: fails when the workspace/surface is not found (list-panes structural check)
+ok - fm_backend_cmux_target_ready: verifies the workspace title against the expected label first
+ok - fm_backend_cmux_target_ready: rejects a workspace id reused under a different title
+ok - fm_backend_cmux_capture: fetches generously and trims to N lines locally
+ok - fm_backend_cmux_capture: propagates a read-screen failure even when stdout is empty
+ok - fm_backend_cmux_capture: fails when the target surface is absent
+ok - fm_backend_cmux_send_key: normalizes the key (Escape -> escape) and targets the explicit workspace/surface
+ok - fm_backend_cmux_send_key: recovers stale workspace/surface ids by expected label
+ok - fm_backend_cmux_send_literal: calls send with an explicit workspace/surface and a -- separator
+ok - fm_backend_cmux_send_text_line: clears partial input when Enter fails
+ok - fm_backend_cmux_send_text_line: reports unsafe input when cleanup also fails
+ok - fm_backend_cmux_current_path: actively probes with marked begin/end lines (zellij-shape frozen cwd)
+ok - fm_backend_cmux_composer_state: a bare '❯' composer row reads empty
+ok - fm_backend_cmux_composer_state: a borderless Claude '❯' composer row reads empty
+ok - fm_backend_cmux_composer_state: a borderless Claude row outranks stale bordered scrollback
+ok - fm_backend_cmux_composer_state: a borderless Claude '❯'+NBSP composer row reads empty under LC_ALL=C
+ok - fm_backend_cmux_composer_state: plain-capture text after a bare glyph degrades to unknown (never false pending)
+ok - fm_backend_cmux_composer_state: the ghost placeholder text reads empty, not pending
+ok - fm_backend_cmux_composer_state: real composer text reads pending
+ok - fm_backend_cmux_composer_state: a slash-command popup's argument-hint placeholder still reads pending (the incident fix)
+ok - fm_backend_cmux_composer_state: reports unknown when the surface cannot be captured
+ok - fm_backend_cmux_composer_state: reports unknown when no border-delimited composer row is found
+ok - fm_backend_cmux_send_text_submit: reports 'empty' once the composer row reads empty after one Enter
+ok - fm_backend_cmux_send_text_submit: reports 'pending' when the composer never clears after retried Enters (swallowed)
+ok - fm_backend_cmux_send_text_submit: retries past a popup-placeholder-fill Enter and lands the real second Enter (the incident fix)
+not ok - send_text_submit should report send-failed when the target is absent, got 'unknown'
+FM_TEST_END 2026-11-06T14:56:49Z tests/fm-backend-cmux.test.sh exit=1 duration_ms=2758 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:56:49Z tests/fm-backend-hc-appdetect-smoke.test.sh family=hc expected_gate_skip=optional-binary
+skip: hc not found (install via bin/fm-install-hc.sh or set FM_HC_BIN)
+fm-test-run: gate skip: tests/fm-backend-hc-appdetect-smoke.test.sh: hc not found (install via bin/fm-install-hc.sh or set FM_HC_BIN)
+FM_TEST_END 2026-11-06T14:56:49Z tests/fm-backend-hc-appdetect-smoke.test.sh exit=0 duration_ms=204 gate_skip=true
+FM_TEST_BEGIN 2026-11-06T14:56:49Z tests/fm-backend-hc-liveness-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+skip: live: hc absent
+fm-test-run: gate skip: tests/fm-backend-hc-liveness-live-e2e.test.sh: live: hc absent
+FM_TEST_END 2026-11-06T14:56:49Z tests/fm-backend-hc-liveness-live-e2e.test.sh exit=0 duration_ms=201 gate_skip=true
+FM_TEST_BEGIN 2026-11-06T14:56:49Z tests/fm-backend-hc-smoke.test.sh family=hc expected_gate_skip=optional-binary
+skip: hc not found (install via bin/fm-install-hc.sh or set FM_HC_BIN)
+fm-test-run: gate skip: tests/fm-backend-hc-smoke.test.sh: hc not found (install via bin/fm-install-hc.sh or set FM_HC_BIN)
+FM_TEST_END 2026-11-06T14:56:50Z tests/fm-backend-hc-smoke.test.sh exit=0 duration_ms=209 gate_skip=true
+FM_TEST_BEGIN 2026-11-06T14:56:50Z tests/fm-backend-hc.test.sh family=hc expected_gate_skip=optional-binary
+1..16
+ok - hc: spawn-capable, detects only on the Herdr app signals, with its tool set
+ok - hc: the bootstrap tool check resolves hc exactly as the adapter does
+ok - hc: create_task starts an independent labeled terminal and refuses a duplicate
+ok - hc: fm-control interrupt delivers the harness's interrupt key
+ok - hc: another task's, another home's, or an unlabeled terminal gets no input and no close
+ok - hc: an empty session never falls through to the ambient core
+ok - hc: an inherited HC_SOCKET never overrides the session pin
+ok - hc: agent_state maps foreground, finished, not_found and core errors onto the shared vocabulary
+ok - hc: agent_state reads a shell wrapper's process group before calling it dead
+ok - hc: kill ends and removes the terminal and refuses when it survives
+ok - hc: teardown's expected label refuses another task's terminal and closes the matching one
+ok - hc: capture, visible capture, and current path read the recorded terminal
+ok - hc: endpoint validation requires window to equal hc_session:hc_terminal
+ok - hc: container_ensure refuses a misnamed, old, or wrong-generation binary
+ok - hc: send_text_submit proves the turn through send --wait and never forces a blocked terminal
+ok - hc: send text is -- delimited, and FM_HC_BIN/FM_HC_SOCKET pin the call
+FM_TEST_COMPLETE
+FM_TEST_END 2026-11-06T14:56:53Z tests/fm-backend-hc.test.sh exit=0 duration_ms=3372 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:56:53Z tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
+skip: live: pi absent
+fm-test-run: gate skip: tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh: live: pi absent
+FM_TEST_END 2026-11-06T14:56:53Z tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh exit=0 duration_ms=211 gate_skip=true
+FM_TEST_BEGIN 2026-11-06T14:56:53Z tests/fm-backend-herdr-eventwait-smoke.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - real herdr (herdr 0.9.1): events.subscribe capability gate passes (protocol >= 16, events surface present in api schema)
+ok - real herdr (herdr 0.9.1): a driven idle->blocked transition returns the blocked record in 0.065s (pane w1:p2)
+ok - real herdr: the watcher fast-path enqueues a stale wake naming the task window from the live blocked transition
+FM_TEST_END 2026-11-06T14:56:55Z tests/fm-backend-herdr-eventwait-smoke.test.sh exit=0 duration_ms=1790 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:56:55Z tests/fm-backend-herdr-focus-flash-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - old path note: this Herdr release preserves focus across the explicit close; continuing with outcome-only assertions
+ok - mitigation: every in-operation sample preserved exact focus while the doomed workspace was removed
+ok - fallback: a doomed pane holding a persistent child exhausts the proof and takes the plain explicit close
+ok - fallback on a focus-preserving release: the plain explicit close preserved exact focus throughout
+ok - version floor: herdr 0.9.1 protocol 22 is at or above the floor and preserves focus
+ok - version floor: an unconfigured home stays projected on herdr 0.9.1 and the explicit opt-in agrees
+evidence: herdr=0.9.1 protocol=22 steal_live=0 floor_verdict=0 default-session-tripwire=armed
+FM_TEST_END 2026-11-06T14:56:58Z tests/fm-backend-herdr-focus-flash-e2e.test.sh exit=0 duration_ms=3003 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:56:58Z tests/fm-backend-herdr-launcher-workspace-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - real herdr E2E: with one 'firstmate' workspace and no herdr parent, a crewmate still lands in this home's own workspace without stealing focus
+ok - real herdr E2E: the normal unique-label path is unchanged when the launcher's own pane identifies the workspace
+ok - real herdr E2E: presentation spaces still create the isolated child workspace and bind it under the launcher's exact parent, without stealing focus
+ok - real herdr E2E: with two 'firstmate' workspaces, a worker spawned from inside the second one lands in that exact workspace
+ok - real herdr E2E: the duplicate-labeled sibling workspace is left entirely untouched and focus is preserved
+ok - real herdr E2E: with a duplicated home label, a projected worker still hangs off the launcher's exact workspace and the sibling stays untouched
+ok - real herdr E2E: an ambiguous home label with no launcher identity refuses before any worker endpoint exists
+ok - real herdr E2E: a launcher pane that no longer exists refuses before any worker endpoint exists
+ok - real herdr E2E: a secondmate launching its own worker gets the same exact-workspace guarantee, and its same-labeled sibling is untouched
+ok - real herdr E2E: a --secondmate launch still stands up that secondmate's own workspace instead of inheriting the launcher's
+ok - real herdr E2E: teardown closes only the worker's own pane and leaves the launcher, its workspace, and the same-labeled sibling intact
+ok - real herdr E2E: isolated lab session removed and default fleet session unchanged
+FM_TEST_END 2026-11-06T14:57:43Z tests/fm-backend-herdr-launcher-workspace-e2e.test.sh exit=0 duration_ms=45425 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T14:57:43Z tests/fm-backend-herdr-presentation-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - real Herdr lab: an opted-out spawn retains the Stage 1 Herdr command sequence with zero ordering calls
+ok - real Herdr lab: a home that configured nothing is projected by default on herdr 0.9.1
+ok - real Herdr lab: every projected create, task-tab create, seeded prune, and move preserves active workspace and tab
+ok - real Herdr lab: persisted-focused seeded prune proceeds when no live client is attached
+ok - real Herdr lab: bounded lock contention warns and falls back flat without projection or focus drift
+ok - real Herdr lab: concurrent primary workers form one stable contiguous block without active workspace/tab drift
+ok - real Herdr lab: forced workspace.move failure leaves a successful worker in default order with a warning and no cleanup
+ok - real Herdr lab: concurrent post-create abort cleanup stays serialized with exact focus restoration
+ok - real Herdr lab: Treehouse commands and metadata shape are byte-identical except for endpoint IDs and spawn incarnation
+ok - real Herdr lab: exact task-pane close removes the projected workspace with no unrestored wrong-focus interval
+ok - real Herdr lab: concurrent projected cleanup is serialized and leaves active workspace/tab unchanged
+ok - real Herdr lab: three repeated concurrent create/order/cleanup waves have zero active workspace or tab drift
+ok - real Herdr lab: the primary presentation setting inherits into real secondmate homes
+ok - real Herdr lab: primary and two secondmate homes each own a top-level contiguous child block
+ok - real Herdr lab: concurrent primary/A/B spawns preserve parent order and exact focus
+ok - real Herdr lab: session lock contention from a secondmate home falls back flat with no journal
+ok - real Herdr lab: Hi Bit and Wheelhouse-style same-identity restarts reclaim one nested space with exact focus and idempotence
+ok - real Herdr lab: secondmate restart binding and reclaim stay isolated to the exact child home and parent
+ok - real Herdr lab: concurrent cross-home recoveries replace exact husks under one session lock with no focus drift
+ok - real Herdr lab: default resumed identity refuses session lock contention
+ok - real Herdr lab: --herdr-resume-lock-wait waits out session lock contention instead of refusing
+ok - real Herdr lab: legacy projection labels and flat secondmate tabs are left unmigrated
+ok - real Herdr lab: multi-home exact-pane teardowns restore captain focus without workspace close authority
+warning: no exact herdr presentation token match for missing1; leaving any stale space untouched and spawning flat
+warning: no exact herdr presentation token match for renamed1; leaving any stale space untouched and spawning flat
+warning: 2 exact herdr presentation token matches for duplicate1 are quarantined; inspecting only for duplicate-agent risk
+warning: quarantined herdr presentation for duplicate1 is dead or agent-free; exact bound reclaim may proceed, otherwise spawning flat
+warning: 2 exact herdr presentation token matches for duplicate1 are quarantined; inspecting only for duplicate-agent risk
+error: quarantined herdr presentation for duplicate1 has a stale-agent pane; refusing duplicate launch
+ok - real Herdr lab: missing, renamed, and duplicate tokens trigger zero destructive or adoptive calls, and live duplicate risk refuses launch
+ok - real Herdr lab validation completed on Herdr 0.9.1 with the default-session tripwire intact
+FM_TEST_END 2026-11-06T15:04:37Z tests/fm-backend-herdr-presentation-e2e.test.sh exit=0 duration_ms=413413 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T15:04:37Z tests/fm-backend-herdr-prune-safety-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - repro setup: a pre-existing workspace labeled 'firstmate' collides with the primary home's own label
+ok - repro setup: a live long-running process is running in the startup workspace's single tab (label '1'), heartbeating to a marker file
+ok - fixed: container_ensure adopts the label-colliding startup workspace and reports NO seeded default tab (never a prune candidate)
+ok - fixed: the live pane (and its live process) survived create_task untouched - the exact 2026-07-02 self-kill incident does not reproduce
+ok - fixed: the startup workspace's original live tab is still present in tab list after the spawn
+ok - happy path: a genuinely fresh workspace's seeded default tab is still pruned, leaving exactly one clean fm-<id> task tab
+FM_TEST_END 2026-11-06T15:04:44Z tests/fm-backend-herdr-prune-safety-e2e.test.sh exit=0 duration_ms=6779 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T15:04:44Z tests/fm-backend-herdr-respawn-idem-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - repro setup: two real fm-<id> task tabs exist (crewmate-shaped and secondmate-shaped), neither with a registered agent
+ok - repro confirmed: after a real session restart, both task panes survive alive but with no registered agent - the restored-layout husk
+ok - fixed: create_task closes and replaces the crewmate-shaped restored husk instead of refusing - no manual pane close needed
+ok - fixed: create_task closes and replaces the secondmate-shaped restored husk instead of refusing - same fix, same function, both spawn shapes
+ok - fixed: the workspace holds exactly the 2 replacement tabs after both respawns - no leaked husk tabs, no destroyed workspace
+ok - fixed: a genuinely live duplicate (a real registered agent) still refuses exactly as before - the husk fix never closes a live pane
+FM_TEST_END 2026-11-06T15:04:46Z tests/fm-backend-herdr-respawn-idem-e2e.test.sh exit=0 duration_ms=2692 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T15:04:46Z tests/fm-backend-herdr-smoke.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - real herdr: version_check accepts the installed binary's protocol
+ok - real herdr: container_ensure starts the isolated session's server, creates the firstmate workspace (fm-lab-backend-smoke-2122512:w1), and reports its seeded default tab id (w1:t1)
+ok - real herdr: session status normalizes running and compatible
+ok - real herdr: container_ensure is idempotent (reuses/adopts the existing firstmate workspace, reports no seeded default tab on adoption)
+ok - real herdr: create_task prunes the freshly-created workspace's seeded default tab, leaving exactly one clean fm-<id> task tab
+ok - real herdr: create_task refuses a same-labeled tab whose pane hosts a genuinely live registered agent (unchanged behavior)
+ok - real herdr: create_task closes and replaces a same-labeled tab whose pane hosts no registered agent (the restored-husk shape), leaving the workspace intact
+ok - real herdr: a secondmate-shaped home (.fm-secondmate-home) gets its OWN herdr workspace, distinct from the primary's, in the SAME session
+ok - real herdr: the secondmate-shaped home's workspace is labeled 2ndmate-<secondmate-id> in herdr itself
+ok - real herdr: a task spawned into the secondmate-shaped home lands as a tab inside the secondmate's OWN workspace
+ok - real herdr: list_live stays scoped to each home's own workspace - neither home sees the other's tasks
+ok - real herdr: BOTH workspace ids/labels AND both tasks' pane ids survive a session stop + fresh server restart (multi-workspace shape)
+ok - real herdr: send_text_line runs a command atomically (pane run) and its output is capturable
+ok - real herdr: send_literal + send_key Enter submit as two separate steps (verified: send-text does NOT auto-submit)
+ok - real herdr: current_path reads the pane's live cwd
+note: FM_HERDR_SMOKE_REAL_CLAUDE=1 not set; skipping the real-agent busy_state check
+ok - real herdr: kill removes the pane and is idempotent/best-effort
+ok - real herdr: list_live discovers a live task tab by fm-<id> label
+FM_TEST_END 2026-11-06T15:04:52Z tests/fm-backend-herdr-smoke.test.sh exit=0 duration_ms=5561 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T15:04:52Z tests/fm-backend-herdr-stale-active-tab-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - detached client: persisted .focused on the target tab does not block pane close
+FM_TEST_END 2026-11-06T15:04:53Z tests/fm-backend-herdr-stale-active-tab-e2e.test.sh exit=0 duration_ms=1332 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T15:04:53Z tests/fm-backend-herdr-workspace-per-home-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
+ok - real herdr E2E: a primary-shaped home spawns a crewmate on the herdr backend
+ok - real herdr E2E: the primary-shaped home's crewmate landed in the 'firstmate' workspace
+ok - real herdr E2E: the primary spawns a --secondmate task on the herdr backend
+ok - real herdr E2E: a --secondmate spawn by the PRIMARY lands in the SECONDMATE's own labeled workspace, distinct from the primary's
+ok - real herdr E2E: a crewmate spawns successfully FROM a secondmate-shaped home's own fm-spawn.sh process
+ok - real herdr E2E: a crewmate spawned FROM the secondmate-shaped home lands in the secondmate's OWN workspace - falls out of per-home resolution, no glue needed
+ok - real herdr E2E: list_live from the primary's own context sees only the primary's own task
+ok - real herdr E2E: list_live from the secondmate's own context sees only tasks in the secondmate's own workspace (both its own tab and its crewmate's)
+ok - real herdr E2E: tearing down cm1 closes only its own tab - the secondmate's and cm2's tabs survive untouched
+ok - real herdr E2E: tearing down cm2 closes only its own tab - the secondmate's own tab (same workspace) survives untouched
+FM_TEST_END 2026-11-06T15:05:12Z tests/fm-backend-herdr-workspace-per-home-e2e.test.sh exit=0 duration_ms=18535 gate_skip=false
+FM_TEST_BEGIN 2026-11-06T15:05:12Z tests/fm-backend-herdr.test.sh family=backend-dispatch expected_gate_skip=none
+ok - fm_backend_herdr_version_check: accepts the current protocol (14)
+ok - fm_backend_herdr_version_check: refuses an old protocol loudly
+ok - fm_backend_herdr_version_check: refuses loudly when herdr is not installed
+ok - fm_backend_herdr_workspace_label: a primary home (no marker) resolves to 'firstmate'
+ok - fm_backend_herdr_workspace_label: a secondmate home (.fm-secondmate-home) resolves to '2ndmate-<id>'
+ok - fm_backend_herdr_workspace_label: trims whitespace around the marker's secondmate id
+ok - fm_backend_herdr_workspace_label: an empty marker file falls back to the primary label 'firstmate'
+ok - fm_backend_herdr_workspace_label: two different secondmate homes get two different, non-colliding labels
+ok - fm_backend_herdr_cli: sets HERDR_SESSION AND appends a trailing --session flag on every call
+ok - herdr client selection: a live pane behind a stale shadowing client reads alive
+ok - herdr recovery-grade read: a stopped server means missing there, and nowhere else
+ok - herdr stale registration: a shell-only pane with a lingering Pi record is agent-free with an explicit reason
+ok - herdr stale registration: no registered status can outrank a shell-only process view
+ok - herdr pane agent session: a resumable reference is reported with the agent label that reported it
+ok - herdr pane agent session: anything unresumable degrades to a nonzero read with no output
+ok - herdr stale registration: a registered agent with a live Pi foreground process still reads alive
+ok - herdr stale registration: only a shell-only pane demotes a registration
+ok - herdr stale registration: a transient prompt helper settles into stale-agent instead of reading live
+ok - herdr stale registration: an exhausted settle window still reads a non-shell foreground as live
+Terminated
+ok - herdr stale registration: an agent process outside the foreground group still counts as alive
+Terminated
+ok - herdr stale registration: the descendant walk reads a spaced executable path whole
+ok - herdr stale registration: an unreadable process view refuses instead of guessing either way
+ok - herdr stale registration: an empty foreground list over a real shell is not unreadable, it settles via the descendant walk
+ok - herdr process state: every foreground process is read, with spaced and tabbed args intact
+ok - herdr process state: missing fields read empty and malformed views stay unreadable
+ok - herdr process state: a foreground of several shells still proves a shell-only pane
+ok - herdr process state: one sample costs the same jq calls for 1 or 8 foreground processes
+ok - herdr stale registration: presentation reclaim never closes a stale-registration pane
+ok - herdr projection abort cleanup reports success only when the task pane closed
+ok - herdr stale registration: busy_state proves a working record at process level before reporting busy
+ok - herdr client selection: one selected client is reused per process
+ok - herdr client selection: selected clients remain scoped to their session
+ok - herdr client selection: only protocol_mismatch triggers reselection; other failures pass through untouched
+ok - herdr client selection: the happy path makes no extra call
+ok - herdr client status: .server.compatible, legacy protocol equality, unknown, and stopped shapes all normalize
+ok - fm_backend_herdr_launcher_identity: a firstmate not running inside herdr has no launcher workspace to inherit
+ok - fm_backend_herdr_launcher_identity: HERDR_ENV=1 without a pane id selects the backend but binds no parent
+ok - fm_backend_herdr_launcher_identity: resolves the launcher's exact workspace even when a same-labeled workspace sorts first
+ok - fm_backend_herdr_launcher_identity: refuses a launcher pane that names a different herdr session
+ok - fm_backend_herdr_launcher_identity: refuses a claimed pane without exact server identity
+ok - fm_backend_herdr_launcher_identity: refuses a launcher pane whose injected socket belongs to another herdr server
+ok - fm_backend_herdr_launcher_identity: refuses as unreadable when the launcher's own pane was destroyed
+ok - fm_backend_herdr_launcher_identity: names a launcher pane id that resolves elsewhere or names no tab as stale and names the values to refresh
+ok - fm_backend_herdr_launcher_identity: refuses when the launcher's pane and tab disagree about their workspace
+ok - fm_backend_herdr_launcher_identity: refuses when the launcher's workspace is gone from its own session
+ok - fm_backend_herdr_workspace_ensure: places a worker in the launcher's exact workspace, not the first same-labeled one
+ok - fm_backend_herdr_workspace_ensure: refuses to guess between two same-labeled home workspaces
+ok - fm_backend_herdr_workspace_ensure: a --secondmate container resolves that home's own workspace, not the launcher's
+ok - fm_backend_herdr_container_ensure: surfaces the exact ambiguous-placement refusal instead of a generic failure
+ok - fm_backend_herdr_container_ensure: version-gates, starts the server, ensures the firstmate workspace, echoes session:workspace_id + the seeded default tab id
+ok - fm_backend_herdr_server_ensure: scrubs home and harness identity without disturbing unrelated environment or session routing
+ok - fm_backend_herdr_server_ensure: still starts a stopped server when no ownership marker is present
+ok - fm_backend_herdr_server_ensure: an externally managed server that stays down gets a bounded wait, no start, and an error naming its owner
+ok - fm_backend_herdr_server_ensure: a running externally managed server is used at once
+ok - fm_backend_herdr_server_ensure: a replacement marker makes it wait without starting, then proceed once the server is running
+ok - fm_backend_herdr_server_ensure: a running server is not used while a replacement marker remains
+ok - fm_backend_herdr_server_ensure: with no owner marker, a cleared replacement hands back to the Firstmate-owned start
+ok - fm_backend_herdr_server_ensure: a replacement that never ends fails naming its marker instead of starting or using a server
+ok - fm_backend_herdr_container_ensure: reuses an existing firstmate workspace without recreating it, and reports no seeded default tab (adopted, not created)
+ok - fm_backend_herdr_container_ensure: workspace create passes --no-focus
+ok - fm_backend_herdr_container_ensure: creates the workspace under the SECONDMATE home's own label, not 'firstmate'
+ok - fm_backend_herdr_create_task: prunes exactly the seeded default tab container_ensure identified, once the first real task tab exists
+ok - herdr repeated spawn/teardown: one persistent firstmate workspace reused, zero orphans, default tab pruned, create ran once
+ok - fm_backend_herdr_create_task: an ADOPTED workspace's pre-existing tab is never pruned (the created-vs-adopted gate)
+ok - fm_backend_herdr_create_task: the label-collision startup-workspace scenario (2026-07-02 incident) leaves the captain's live tab untouched
+ok - fm_backend_herdr_workspace_prune_seeded_default_tab: refuses to close the seeded default tab when its pane reports a working agent (defense in depth)
+ok - fm_backend_herdr_create_task: refuses a duplicate tab label (herdr's own tab create has no uniqueness check)
+ok - fm_backend_herdr_create_task: a same-labeled tab with a live (even idle) registered agent still refuses exactly as before
+ok - fm_backend_herdr_create_task: scans every same-labeled tab and refuses if any duplicate is live
+ok - fm_backend_herdr_create_task: closes and replaces a same-labeled tab whose pane is dead (pane_not_found)
+ok - fm_backend_herdr_create_task: closes and replaces a same-labeled tab whose pane is alive but hosts no registered agent (a restored plain shell)
+ok - fm_backend_herdr_create_task: closes every confirmed same-labeled husk only after creating the replacement
+ok - fm_backend_herdr_create_task: refuses success when a preexisting husk tab remains after replacement
+ok - fm_backend_herdr_create_task: refuses (fail-safe) rather than guessing when the duplicate's agent state cannot be classified confidently
+ok - fm_backend_herdr_create_task: creates the replacement tab BEFORE closing the husk tab, never the reverse
+ok - fm_backend_herdr_create_task: creates a tab and parses tab_id/pane_id from the JSON response, prunes nothing when no seeded tab id is given
+ok - fm_backend_herdr_create_task: tab create passes --no-focus
+ok - herdr presentation: a home that set nothing gets the projection by default at or above the floor
+ok - herdr presentation: an unconfigured home below the floor falls back flat with one naming warning
+ok - herdr presentation: an unreadable client release falls back flat instead of guessing
+ok - herdr presentation: a deliberate opt-in is never silently downgraded below the floor
+ok - herdr presentation: an explicit off opts the home out
+ok - herdr presentation: an unrecognized value warns and follows the default instead of failing a spawn
+ok - herdr presentation: the below-floor warning is one per home per release, not one per spawn
+ok - herdr presentation: warning marker publication is atomic, symlink-safe, and fails visible
+ok - herdr presentation: client and selected server floors compose conservatively without overriding explicit opt-in
+ok - herdr presentation floor: every measured release, and each signal alone, classifies correctly
+ok - herdr presentation floor: either signal alone can carry an above verdict, and each divergence is real
+ok - herdr presentation: config parsing separates a deliberate choice from an unconfigured default
+ok - herdr presentation journal: atomically publishes one non-authoritative 128-bit correlator and refuses overwrite
+ok - herdr presentation journal: version 2 binds exact home/endpoint/parent identities and advances atomically
+ok - herdr presentation create: exact response IDs yield one normal task pane with no workspace-close authority
+ok - herdr presentation create: concurrent same-label tabs are never prune targets
+ok - herdr presentation focus: snapshot requires one exact active workspace and tab
+ok - herdr presentation focus: exact pane close restores the exact prior workspace and tab
+ok - herdr presentation focus: cleanup refuses rather than close the tab a live client is viewing
+ok - herdr presentation focus: unexpected foreground-client reasons fail closed
+ok - herdr presentation focus: cleanup closes a persisted-focused tab when no live client is attached
+ok - herdr presentation focus: pane close fails when exact focus restoration fails
+ok - herdr presentation reclaim: live agent state at the close boundary refuses mutation
+ok - herdr presentation focus: active-tab attachment is rechecked after agent validation
+ok - herdr presentation focus: pre-close checkpoint catches a target focused during planning
+ok - herdr presentation focus: close preserves a live client that switches away from the target during planning
+ok - herdr presentation cleanup: emptying close behind focus ends the exact shell without a move or focus change
+ok - herdr presentation cleanup: emptying close before focus moves the doomed workspace to the end and ends its exact shell
+ok - herdr presentation cleanup: emptying close with the focused workspace last skips the move
+ok - herdr presentation cleanup: emptying close of the last workspace skips the move
+ok - herdr presentation cleanup: a non-emptying close stays plain with no proof, move, or signal
+ok - herdr presentation cleanup: no-move plain close requires structured pane removal
+ok - herdr presentation cleanup: an ambiguous workspace layout falls back to the plain close
+ok - herdr presentation cleanup: a failed repositioning move falls back to the plain close with a warning
+ok - herdr presentation cleanup: a pane with a live foreground process falls back to the plain close
+ok - herdr presentation cleanup: a transient prompt helper settles into the pane-death path instead of the plain close
+tests/fm-backend-herdr.test.sh: line 3029: 2211354 Killed                  bash -c 'trap "" HUP; sleep 300'
+ok - herdr presentation cleanup: a SIGHUP-surviving shell is escalated to SIGKILL before giving up
+tests/fm-backend-herdr.test.sh: line 3067: 2211662 Killed                  bash -c 'trap "" HUP; sleep 300'
+ok - herdr presentation cleanup: a failed pane-death close falls back to the plain close
+ok - herdr presentation cleanup: the exact-tab restore remains the backstop behind the pane-death close
+ok - herdr presentation cleanup: SIGKILL never reaches a pid the exact pane no longer owns
+ok - herdr presentation cleanup: every unconfirmed removal restores the exact original workspace order and reports failure
+ok - fm_backend_herdr_kill: one session lock covers the focus-safe emptying removal
+ok - fm_backend_herdr_kill: killing the focused workspace's tab keeps the legitimate plain close
+ok - endpoint confirmed-gone: only structured not-found permits record removal and ambiguous identity refuses
+ok - fm_backend_herdr_kill: unavailable session locks defer every pane close
+ok - herdr presentation focus: projected seeded pruning refuses the active tab
+ok - herdr presentation labels: └ concise-task · p:<full-token> for primary and secondmate children
+ok - herdr presentation ordering: exact new workspace appends to the primary block while focus and relative orders stay stable
+ok - herdr presentation ordering: secondmate children append under their owning parent block
+ok - herdr presentation ordering: a group key places only the new workspace inside its group, untagged children stay ahead
+ok - herdr presentation ordering: a foreign legacy child is warning-only and read-only
+ok - herdr presentation ordering: intervening parent child blocks remain traversable
+ok - herdr presentation ordering: only the exact new id moves; human spaces keep relative order
+ok - herdr presentation ordering: move failure warns, returns success, and grants no cleanup authority
+ok - herdr presentation ordering: an ambiguous existing worker block is warning-only and read-only
+ok - herdr presentation ordering: the launcher's exact parent workspace id disambiguates a duplicated home label without moving anything
+ok - herdr presentation ordering: a foreign new-format child is warning-only and read-only
+ok - herdr presentation ordering: missing owning parent is warning-only and read-only
+ok - herdr presentation lock: one path per session/socket across homes
+ok - herdr presentation lock: null and missing socket paths fail closed
+ok - herdr presentation ordering: malformed socket metadata is warning-only and read-only
+ok - herdr presentation reclaim: legacy, cross-home, ambiguous, live/unknown, and focus-unknown cases refuse without mutation
+ok - herdr presentation reclaim: exact agent-free husk survives duplicate parent labels while its sibling stays untouched
+warning: 2 exact herdr presentation token matches for task-p3 are quarantined; inspecting only for duplicate-agent risk
+warning: quarantined herdr presentation for task-p3 is dead or agent-free; exact bound reclaim may proceed, otherwise spawning flat
+ok - herdr presentation recovery: duplicate-token inspection is read-only and live-agent risk refuses fallback
+ok - fm_backend_herdr_workspace_find: matches only THIS home's own label among several coexisting workspaces
+ok - fm_backend_herdr_list_live: scoped to this home's own workspace, never a sibling home's
+ok - fm_backend_herdr_parse_target: splits '<session>:<pane_id>' on the FIRST colon (pane_id itself contains one)
+ok - fm_backend_herdr_normalize_key: Enter/Escape/C-c map to herdr's verified enter/escape/ctrl+c
+ok - fm_backend_herdr_capture: calls 'pane read <pane> --source recent --lines N' with the session set
+ok - fm_backend_herdr_capture: works around the verified small-N '--lines' bug by over-fetching and trimming locally
+ok - fm_backend_herdr_capture: ensures the session and preserves pane read failure
+ok - fm_backend_herdr_send_key: normalizes the key and targets the right pane
+ok - fm_backend_herdr_kill: calls pane close and stays best-effort on failure
+ok - fm_backend_herdr_current_path: reads pane foreground_cwd (the live running process), not the frozen creation-time cwd
+ok - fm_backend_herdr_busy_state: working -> busy
+ok - fm_backend_herdr_busy_state: done -> idle, blocked -> idle (surfaced like a stale pane, not suppressed as busy)
+ok - fm_backend_herdr_busy_state: unparseable/absent agent state reports unknown, the regex-fallback cue
+ok - fm_backend_herdr_composer_state: a bare '❯' composer row reads empty
+ok - fm_backend_herdr_composer_state: bright placeholder-like text stays pending rather than being mistaken for an idle ghost
+ok - fm_backend_herdr_composer_state: real composer text reads pending
+ok - fm_backend_herdr_composer_state: titled rounded top rule is a composer only under a cortex agent probe
+ok - fm_backend_herdr_composer_state: panes without a titled composer box make no second agent get call
+ok - fm_backend_herdr_composer_state: Grok's exact title overhang is empty while pending and unproved panes remain safe
+ok - fm_backend_herdr_composer_state: a slash-command popup's argument-hint placeholder still reads pending (the incident fix)
+ok - fm_backend_herdr_composer_state: reports unknown when the pane cannot be captured
+ok - fm_backend_herdr_composer_state: fails fast to unknown for inactive session without starting server
+ok - fm_backend_composer_state (herdr): piped probe on bad target does not hang EOF-sensitive readers
+ok - fm_backend_herdr_composer_state: reports unknown for bare shell prompts with no composer row
+ok - fm_backend_herdr_composer_state: a blocked pi pane parked on a prompt is not an empty composer
+ok - fm_backend_herdr_composer_state: a native idle Pi separator composer reads empty
+ok - fm_backend_herdr_composer_state: a dollar-first Pi status footer reads empty, not a dead shell
+ok - fm_backend_herdr_composer_state: real Pi composer text remains pending
+ok - fm_backend_herdr_composer_state: an incomplete lower Pi separator cannot inherit a stale empty row
+ok - fm_backend_herdr_composer_state: Pi separators never authorize working, non-Pi, unreadable, or over-tall targets
+ok - fm_backend_herdr_composer_state: a real-claude unbordered '❯' prompt row (no border box in view) reads empty
+ok - fm_backend_herdr_composer_state: a real-claude unbordered '❯ <text>' prompt row reads pending
+ok - fm_backend_herdr_composer_state: a live unbordered prompt row below a stale bordered decorative box still wins (not misread as the box's own row)
+ok - fm_backend_herdr_composer_state: claude's dim prompt-suggestion ghost (the overnight wedge shape) reads empty
+ok - fm_backend_herdr_composer_state: real typed text on the same claude prompt row still reads pending
+ok - fm_backend_herdr_composer_state: grok's dark-truecolor placeholder (the TRUECOLOR gap) reads empty
+ok - fm_backend_herdr_composer_state: grok's real bright typed input still reads pending
+ok - fm_backend_herdr_composer_state: a real-codex unbordered '›' prompt row reads empty
+ok - fm_backend_herdr_composer_state: a faint real-codex ghost suggestion reads empty
+ok - fm_backend_herdr_composer_state: non-faint codex prompt text still reads pending
+ok - fm_backend_herdr_wait_for_working: reports 'busy' immediately on the first poll, without spending the rest of the budget
+ok - fm_backend_herdr_wait_for_working: a slow transition landing on a later sample within one window is still caught (robust against the 'slow transition' failure direction)
+ok - fm_backend_herdr_wait_for_working: spreads six samples across the full budget endpoint without a final trailing sleep
+ok - fm_backend_herdr_send_text_submit: applies the herdr minimum confirmation budget before polling agent-state
+ok - fm_backend_herdr_wait_for_working: reports 'idle' (readable, genuinely not yet working) when 'busy' never appears
+ok - fm_backend_herdr_wait_for_working: reports 'unknown' (a hard read failure, not a timing race) only when EVERY poll in the window fails
+ok - fm_backend_herdr_wait_for_working: treats blocked as submit-active for confirmation without changing watcher busy-state semantics
+ok - fm_backend_herdr_send_text_submit: reports 'empty' once agent_status reports working after one Enter, without ever reading the composer
+ok - fm_backend_herdr_send_text_submit: reports 'pending' when agent_status stays idle and the composer still holds unsent text after retried Enters (swallowed)
+ok - fm_backend_herdr_send_text_submit: a failed literal send reports send-failed and replays the transport's stderr
+ok - fm_backend_herdr_send_text_submit: a slash-command popup's placeholder fill on Enter #1 never flips agent_status to working, so it does not short-circuit as submitted; Enter #2 is retried and lands it
+ok - fm_backend_herdr_send_text_submit: the Claude background-task exit picker gets no confirming Enter
+ok - fm_backend_send_text_submit (herdr): a picker behind a blocked verdict is named by the caller's next composer read
+ok - fm_backend_herdr_send_text_submit: a post-Enter blocked state confirms delivery without retrying into the prompt
+ok - fm_backend_herdr_send_text_submit: native working + proven pending after retries reports empty (queued Enter)
+ok - fm_backend_herdr_send_text_submit: a failed Enter cannot borrow preexisting working state as queued-delivery proof
+ok - fm_backend_herdr_send_text_submit: a failed Enter cannot borrow a later native transition as delivery proof
+ok - fm_backend_herdr_send_text_submit: idle native agent-state plus empty composer reports empty (landed Claude turn)
+ok - fm_backend_herdr_send_text_submit: idle native baseline uses a rendered busy footer to confirm a queued Enter
+ok - fm_backend_herdr_composer_state: cursor's mid-turn placeholder-plus-busy-token row reads pending (why delivery needs a separate signal)
+ok - fm_backend_herdr_rendered_busy_state: busy/idle/unknown from the rendered footer, with an unreadable pane never reading idle
+ok - fm_backend_herdr_send_text_submit: a rendered-footer idle-to-busy transition confirms delivery when native agent-state never reports idle
+ok - fm_backend_herdr_send_text_submit: an already-busy footer baseline is never accepted as proof that this Enter landed
+ok - fm_backend_herdr_send_text_submit: confirms submission via native agent-state alone, immune to a codex-style dynamic idle-tip composer that would have misread as 'pending' under the old composer-based confirmation
+ok - fm_backend_herdr_composer_state: a faint real-codex dynamic idle-tip composer row reads empty
+ok - fm_backend_composer_state (herdr): the pre-injection empty-box guard still refuses a genuinely non-empty composer, unaffected by the submit-confirmation change
+ok - fm_backend_herdr_send_text_submit: a slow transition landing on a later sample within one Enter's budget is confirmed WITHOUT sending a needless extra Enter
+ok - fm_backend_herdr_send_text_submit: reports 'send-failed' when the literal send-text call itself errors
+ok - fm_backend_herdr_send_text_submit: reports 'unknown' when the post-Enter agent-get read fails (never retries past an unreadable target)
+ok - fm_backend_herdr_send_text_submit: an unreadable composer stops Enter retries after native status stays idle
+ok - fm_backend_herdr_send_text_submit: a 1500-character payload a Claude composer still holds is submitted whole
+ok - fm_backend_herdr_send_text_submit: a long payload whose Claude composer kept only the tail is not submitted, is cleared, and reports send-failed
+ok - fm_backend_herdr_send_text_submit: a refused suffix whose clear cannot be verified reports unknown, not send-failed
+ok - fm_backend_herdr_send_text_submit: a refused 480-character suffix wrapped over five rows is cleared one row per Ctrl+U and reports send-failed
+ok - fm_backend_herdr_send_text_submit: after a refused suffix is cleared, a resend starts from an empty Claude composer and submits only the message
+ok - fm_backend_herdr_send_text_submit: a Claude composer holding leftover text is refused before anything is typed
+ok - fm_backend_herdr_send_text_submit: a matching head in the transcript does not prove the current composer
+ok - fm_backend_herdr_send_text_submit: an away-mode digest and a marked steer are submitted when Claude's read-back only drops U+2063
+ok - fm_backend_herdr_send_text_submit: dropping U+2063 does not let a marked digest missing its head be submitted
+ok - fm_backend_herdr_composer_state: a slash-command popup cannot hide a typed composer
+ok - fm_backend_herdr_send_text_submit: a typed slash command hidden behind its popup is still proven and submitted
+ok - fm_backend_herdr_composer_content: Claude 2.1.291's marked popup row is not read as the typed command
+ok - fm_backend_herdr_send_text_submit: a slash command behind Claude 2.1.291's marked popup row is proven and submitted
+ok - fm_backend_herdr_send_text_submit: with Claude 2.1.291's popup on screen a suffix, a placeholder plus remainder, or a prefix is still refused and cleared
+ok - fm_backend_herdr_send_text_submit: a typed slash command Claude draws in muted truecolor grey is proven and submitted
+ok - fm_backend_herdr_send_text_submit: a lone paste placeholder still submits the full long payload
+ok - fm_backend_herdr_send_text_submit: a lone multi-line paste placeholder still submits the long multi-line payload
+ok - fm_backend_herdr_send_text_submit: a paste placeholder followed by a literal remainder is not submitted and is cleared
+ok - fm_backend_herdr_send_text_submit: three paste placeholders with no literal remainder submit the long payload
+ok - fm_backend_herdr_send_text_submit: non-Claude and unidentified panes keep the pre-proof type-then-Enter behavior
+ok - fm_backend_validate: herdr is a known backend (P2)
+ok - fm_backend_busy_state: tmux (no native primitive) always reports unknown, preserving the P1 regex-only path
+error: unknown backend 'bogus' (known: tmux herdr zellij orca cmux paseo rex t3code tern hc)
+ok - fm_backend_composer_state dispatches every backend to its named thin classifier, unknown for unrecognized backends
+ok - fm-peek/fm-send: explicit stale targets matching metadata use the recorded backend
+ok - fm_backend_herdr_normalize_event routes through the shared record with an empty from_status
+ok - fm_backend_herdr_escalation_marker keys the dedupe marker exactly like the watcher's .stale-<key>
+ok - fm_backend_herdr_apply_transition: blocked dedupe starts only after explicit commit
+ok - fm_backend_herdr_apply_transition: a working edge clears the marker so the next ->blocked re-escalates
+ok - fm_backend_herdr_clear_transition removes task-owned dedupe state
+ok - fm_backend_herdr_apply_transition: idle/done (defer) and unknown/empty (fallback) take no fast action
+ok - fm_backend_herdr_wait_transition: a home with no herdr panes falls back to polling (rc 2)
+ok - fm_backend_herdr_wait_transition: below-capability protocol/schema falls back to polling (rc 2)
+ok - fm_backend_herdr_wait_transition: reconnect level-reconcile returns an uncommitted blocked pane
+ok - fm_backend_herdr_wait_transition: subscribes before reconnect level-reconcile
+ok - fm_backend_herdr_wait_transition: a still-blocked, already-escalated pane is not re-delivered on reconnect
+ok - fm_backend_herdr_wait_transition: a streamed ->blocked edge returns the record sub-poll
+ok - fm_backend_herdr_wait_transition: streamed working clears the marker, idle/done are deferred (clean timeout)
+ok - fm_backend_herdr_wait_transition: a reader/subscribe failure falls back to polling (rc 2)
+ok - fm_backend_herdr_wait_transition: Bash 3.2-safe bad-ack path closes fd 9 and removes its FIFO
+ok - fm_backend_herdr_wait_transition: stock macOS Bash clean timeout closes fd 9 and returns 1
+Terminated

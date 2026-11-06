@@ -1,0 +1,10 @@
+== A: runtime refusal (real fm_exclude_tools_check, non-empty list) ==
+harness=claude rc=0 Workflow,mcp__srv
+harness=codex rc=1 error: config/crew-exclude-tools lists tools to hide, but the codex runtime cannot hide tools, so this launch is refused rather than running with them available; empty the file or launch a runtime that supports exclusion (claude, pi, pi-signed)
+harness=grok rc=1 error: config/crew-exclude-tools lists tools to hide, but the grok runtime cannot hide tools, so this launch is refused rather than running with them available; empty the file or launch a runtime that supports exclusion (claude, pi, pi-signed)
+harness=pi rc=0 Workflow,mcp__srv
+raw launch:
+rc=1 error: config/crew-exclude-tools lists tools to hide, but a raw launch command cannot hide tools; remove the entries or launch a runtime that supports them (claude, pi, pi-signed)
+== B: real claude, launch shape, prompt must survive variadic flag ==
+baseline: tools=12 tools_json_bytes=29148 workflow_present=True prompt_survived=True
+excluded: tools=11 tools_json_bytes=23722 workflow_present=False prompt_survived=True
