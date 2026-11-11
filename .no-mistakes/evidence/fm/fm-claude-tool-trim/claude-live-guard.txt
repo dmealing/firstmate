@@ -1,0 +1,2 @@
+ok - Claude Code 2.1.322 (Claude Code): --disallowedTools removes exactly the excluded tool's schema from the model request
+rc=0
