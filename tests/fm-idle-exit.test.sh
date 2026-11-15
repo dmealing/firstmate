@@ -42,7 +42,12 @@ make_world() {
 #!/usr/bin/env bash
 case "\$1" in
   list-windows) printf '%s\n' fm-lane fm-sm1 ;;
+  capture-pane) cat "$world/screen.lane" 2>/dev/null; exit 0 ;;
+  send-keys) printf '%s\\n' "\$*" >> "$world/keys.log"; exit 0 ;;
   display-message)
+    for a in "\$@"; do case "\$a" in *pane_pid*)
+      for t in "\$@"; do case "\$t" in *fm-sm1*) cat "$world/panepid.sm1" 2>/dev/null; exit 0 ;; esac; done
+      cat "$world/panepid.lane" 2>/dev/null; exit 0 ;; esac; done
     for a in "\$@"; do case "\$a" in *pane_current_command*)
       for t in "\$@"; do case "\$t" in *fm-sm1*) cat "$world/pane.sm1"; exit 0 ;; esac; done
       cat "$world/pane.lane"; exit 0 ;; esac; done
@@ -54,6 +59,7 @@ SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$world/control.log"
 [ ! -e "$world/control.fail" ] || { echo "error: control refused"; exit 1; }
+[ ! -e "$world/control.picker" ] || { echo "error: task lane is blocked on a prompt: Claude background-task exit picker. Refusing to type Enter into it."; exit 1; }
 pane="$world/pane.\$1"
 case "\$2" in
   exit) printf 'zsh\n' > "\$pane" ;;
@@ -68,8 +74,34 @@ SH
 cat "$world/crew-state" 2>/dev/null || echo 'state: paused · source: status-log · waiting'
 SH
   chmod +x "$fakebin"/*
+  start_agent "$world" lane 'read -r x'
   printf '%s\n' "$world"
 }
+
+# A fake agent process: a copy of bash named claude, so the process classifier
+# reads it as a harness, running <script> with a stdin that never closes. Its
+# pid becomes the pane's root pid for <name> (lane or sm1), replacing any
+# earlier fake agent for that pane.
+start_agent() {  # <world> <name> <script>
+  local w=$1 name=$2 script=$3 pid
+  mkdir -p "$w/agentbin"
+  [ -x "$w/agentbin/claude" ] || cp "$(command -v bash)" "$w/agentbin/claude"
+  [ -p "$w/agentin.$name" ] || mkfifo "$w/agentin.$name"
+  if [ -s "$w/panepid.$name" ]; then pkill -P "$(cat "$w/panepid.$name")" 2>/dev/null || true; kill "$(cat "$w/panepid.$name")" 2>/dev/null || true; fi
+  "$w/agentbin/claude" -c "$script" <>"$w/agentin.$name" >/dev/null 2>&1 &
+  pid=$!
+  printf '%s\n' "$pid" > "$w/panepid.$name"
+  printf '%s\n' "$pid" >> "$TMP_ROOT/agent.pids"
+}
+
+reap_agents() {
+  local pid
+  while read -r pid; do
+    pkill -P "$pid" 2>/dev/null || true
+    kill "$pid" 2>/dev/null || true
+  done < "$TMP_ROOT/agent.pids" 2>/dev/null
+}
+trap 'reap_agents; fm_test_cleanup' EXIT
 
 set_idle() {  # <world> <id>
   printf 'gen1\n' > "$1/state/$2.busy-gen"
@@ -81,6 +113,7 @@ run_idle() {  # <world> <args...>
   local world=$1
   shift
   PATH="$world/fakebin:$BASE_PATH" TMUX='' FM_BACKEND=tmux FM_HOME="$world" \
+    FM_IDLE_EXIT_HELPER_GRACE_SECS=1 \
     FM_STATE_OVERRIDE="$world/state" FM_CONFIG_OVERRIDE="$world/config" \
     FM_IDLE_EXIT_CONTROL_BIN="$world/fakebin/fm-control.sh" \
     FM_IDLE_EXIT_CREW_STATE_BIN="$world/fakebin/fm-crew-state.sh" \
@@ -319,6 +352,7 @@ add_secondmate() {  # <world>
     "kind=secondmate" "harness=claude"
   set_idle "$w" sm1
   printf 'claude\n' > "$w/pane.sm1"
+  start_agent "$w" sm1 'read -r x'
   printf 'done [at=1]: ready\n' > "$w/state/sm1.status"
   fm_touch_epoch 1700000000 "$w/state/sm1.status"
 }
@@ -419,6 +453,101 @@ test_secondmate_failed_relaunch_hands_back_to_liveness() {
   pass "secondmate: a failed relaunch hands the mate back to the liveness guarantee"
 }
 
+# --- what is running under the agent -------------------------------------------
+
+long_wait() {  # <world>
+  printf 'captain-held [at=%s]: held for the captain\n' $(( $(date +%s) - 4560 )) > "$1/state/lane.status"
+}
+
+test_worker_with_background_child_is_not_stopped() {
+  local w
+  w=$(make_world busy-child)
+  long_wait "$w"
+  # A test run the agent started after its session began: a sleep under its shell.
+  start_agent "$w" lane 'sleep 2; sleep 600 & read -r x'
+  sleep 3
+  run_idle "$w" tick
+  assert_not_contains "$(control_log "$w")" "lane exit" "a worker with a background child must not be stopped"
+  assert_absent "$w/state/lane.idle-exit" "no record while the agent has a job running"
+  run_idle "$w" exit lane && fail "a direct stop must refuse a worker with a background child"
+  assert_not_contains "$(control_log "$w")" "lane exit" "a refused direct stop must not reach the lifecycle owner"
+  pass "worker: a background child under the agent keeps a long wait from stopping it"
+}
+
+test_worker_without_child_is_stopped() {
+  local w
+  w=$(make_world no-child)
+  long_wait "$w"
+  run_idle "$w" tick
+  assert_contains "$(control_log "$w")" "lane exit" "the same worker with no child is stopped"
+  assert_present "$w/state/lane.idle-exit" "the stop leaves its record"
+  pass "worker: a long wait with nothing under the agent still stops it"
+}
+
+test_session_helper_under_the_agent_does_not_count() {
+  local w
+  w=$(make_world helper-child)
+  long_wait "$w"
+  # Started with the session, like an MCP server: inside the grace window.
+  start_agent "$w" lane 'sleep 600 & read -r x'
+  sleep 3
+  run_idle "$w" tick
+  assert_contains "$(control_log "$w")" "lane exit" "a helper started with the session must not keep the worker running"
+  pass "worker: a long-lived helper started with the session does not count as work"
+}
+
+test_unreadable_or_unclassified_tree_is_not_stopped() {
+  local w stranger
+  w=$(make_world unreadable-tree)
+  long_wait "$w"
+  rm -f "$w/panepid.lane"
+  run_idle "$w" tick
+  assert_not_contains "$(control_log "$w")" "lane exit" "an unreadable process tree must not stop the worker"
+  assert_absent "$w/state/lane.idle-exit" "no record for an unreadable tree"
+  sleep 600 &
+  stranger=$!
+  printf '%s\n' "$stranger" > "$w/panepid.lane"
+  run_idle "$w" tick
+  kill "$stranger" 2>/dev/null || true
+  assert_not_contains "$(control_log "$w")" "lane exit" "a tree with no recognizable agent must not stop the worker"
+  assert_absent "$w/state/lane.idle-exit" "no record for an unclassifiable tree"
+  pass "worker: a process tree that cannot be read or classified reads as busy"
+}
+
+test_exit_picker_is_dismissed_and_leaves_no_record() {
+  local w rc=0
+  w=$(make_world picker)
+  long_wait "$w"
+  : > "$w/control.picker"
+  printf 'Background work is running\n  ❯ 1. Exit and stop tasks\n    2. Cancel\nEnter to confirm · Esc to cancel\n' > "$w/screen.lane"
+  run_idle "$w" exit lane >/dev/null 2>&1 || rc=$?
+  assert_equals 3 "$rc" "a picker answer is a lane that no longer qualified"
+  assert_absent "$w/state/lane.idle-exit" "no idle-exit record after the picker"
+  assert_contains "$(cat "$w/keys.log" 2>/dev/null)" "Escape" "the picker is dismissed with Escape"
+  assert_not_contains "$(cat "$w/keys.log" 2>/dev/null)" "Enter" "Enter is never pressed into the picker"
+  run_idle "$w" tick
+  assert_absent "$w/state/lane.idle-exit" "the worker keeps running"
+  assert_not_contains "$(ls "$w/state")" ".idle-exit-report" "a busy picker is not a failure to report"
+  pass "worker: the background-work exit picker is dismissed without choosing exit"
+}
+
+test_secondmate_with_background_child_is_not_stopped() {
+  local w now
+  w=$(make_world sm-busy-child)
+  add_secondmate "$w"
+  now=$(date +%s)
+  start_agent "$w" sm1 'sleep 2; sleep 600 & read -r x'
+  sleep 3
+  printf '%s\n' $(( now - 4560 )) > "$w/state/.idle-exit-since-sm1"
+  run_idle "$w" tick
+  assert_absent "$w/state/sm1.idle-exit" "a mate with a background job under its agent must not stop"
+  start_agent "$w" sm1 'read -r x'
+  printf '%s\n' $(( now - 4560 )) > "$w/state/.idle-exit-since-sm1"
+  run_idle "$w" tick
+  assert_present "$w/state/sm1.idle-exit" "the same mate with nothing under it stops"
+  pass "secondmate: its own background job under the agent keeps it running"
+}
+
 test_decision_wait_threshold_both_sides
 test_held_wait_threshold
 test_dated_pause_threshold_both_sides
@@ -435,3 +564,9 @@ test_secondmate_with_work_keeps_running
 test_liveness_leaves_deliberate_stop_down_and_relaunches_crash
 test_secondmate_routed_message_relaunches
 test_secondmate_failed_relaunch_hands_back_to_liveness
+test_worker_with_background_child_is_not_stopped
+test_worker_without_child_is_stopped
+test_session_helper_under_the_agent_does_not_count
+test_unreadable_or_unclassified_tree_is_not_stopped
+test_exit_picker_is_dismissed_and_leaves_no_record
+test_secondmate_with_background_child_is_not_stopped

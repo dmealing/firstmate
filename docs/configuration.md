@@ -818,6 +818,10 @@ Firstmate stops idle agent sessions to free their memory and relaunches them whe
 It is on by default in every home.
 A ship or scout worker stops when it has waited on the captain or an owner with no known end for longer than the wait threshold, or at once when it is paused with an `until` time more than the dated-pause threshold away; a pause declared before a relaunch does not stop the worker again.
 A local secondmate stops when it has had no work under way for longer than its idle threshold.
+A session counts as idle only when its agent and everything the agent started are doing nothing: a worker or secondmate with a test run, shell, or server still running under its agent is busy and is not stopped, and a process tree that cannot be read counts as busy.
+The agent's own helpers started with the session, such as tool servers, do not count as work.
+If a stop is still attempted and the harness answers with its background-work exit picker, the picker is dismissed without choosing exit and the session keeps running.
+A secondmate also needs no live worker under it, and its own background jobs fall under the same rule.
 A stop keeps the worker's local copy, branch, uncommitted changes, instructions, and task record, and a relaunch starts a fresh agent in the same place with a note naming the wait and why it was relaunched.
 A steer sent to a stopped session relaunches it before the doorbell rings, and the watcher relaunches a stopped worker when its wait time arrives or its wait is answered or released, and a stopped secondmate when it receives work.
 A stopped secondmate is left down by the secondmate liveness check, while a secondmate that crashes is still relaunched exactly as before.

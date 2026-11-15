@@ -48,17 +48,31 @@
 # Before a stop the lane must also be local (no remote_host), on a backend
 # whose agent state, exit, and relaunch are verified (bin/fm-control-lib.sh),
 # with its brief and worktree present, an empty steering inbox, an agent that
-# reads alive and exactly idle, and a current state from
-# bin/fm-crew-state.sh other than working (so an executing no-mistakes run or a
-# busy pane keeps it running). Background jobs the agent itself started are not
-# visible to these checks; a worker that must keep one alive should declare its
-# wait with an `until` no further away than its job's own timeout.
+# reads alive and exactly idle, nothing running under it (below), and a current
+# state from bin/fm-crew-state.sh other than working (so an executing
+# no-mistakes run or a busy pane keeps it running).
+#
+# Idle means the agent and everything it started are doing nothing. The agent's
+# process tree is read from the endpoint's own process view (the pane's shell
+# pid on tmux and Herdr, the foreground chain on Rex), and the stop is skipped
+# when any descendant of an agent process started more than a grace window
+# (FM_IDLE_EXIT_HELPER_GRACE_SECS, default 180) after the oldest agent process
+# of that tree: a background test run, shell, or server the agent started is
+# such a descendant, while its own helpers launched with the session (MCP
+# servers) started inside the window and do not count. A zombie never counts.
+# A tree that cannot be read, holds no recognizable agent process, or belongs
+# to a backend with no process view reads as busy. If a stop is still
+# attempted and the harness answers with its background-work exit picker, that
+# is busy too: the picker is dismissed with Escape (never Enter), the agent
+# keeps running, and no record is written. bin/fm-control.sh's refusal to
+# press Enter there stays.
 #
 # Secondmates (local only; a remote route is never stopped here). A mate has no
 # work under way when its home's state holds no child *.meta, its own wake
 # queue is empty, its steering inbox in this home holds no unhandled message,
 # no unresolved pending reply in this home names it, and its agent reads alive
-# and exactly idle. The first such observation is stamped in
+# and exactly idle with nothing running under it (the same process-tree check
+# as a worker's, which covers the mate's own background shells). The first such observation is stamped in
 # state/.idle-exit-since-<id>, removed by any observation with work; the mate
 # stops once the latest of that stamp, its status file's last change, its
 # newest handled inbox message, and its last relaunch is secondmate_idle_secs
@@ -117,8 +131,8 @@
 #
 # Overrides for tests: FM_IDLE_EXIT_CONTROL_BIN, FM_IDLE_EXIT_CREW_STATE_BIN,
 # FM_IDLE_EXIT_ACTION_SECS (default 900, the bound on each lifecycle call and on
-# lock waits), and FM_IDLE_EXIT_INLINE=1, which runs tick actions in the
-# foreground.
+# lock waits), FM_IDLE_EXIT_HELPER_GRACE_SECS (default 180, the grace window
+# above), and FM_IDLE_EXIT_INLINE=1, which runs tick actions in the foreground.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -145,11 +159,15 @@ export FM_HOME FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG"
 . "$SCRIPT_DIR/fm-classify-lib.sh"
 # shellcheck source=bin/fm-secondmate-liveness-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-liveness-lib.sh"
+# shellcheck source=bin/fm-agent-process-lib.sh
+. "$SCRIPT_DIR/fm-agent-process-lib.sh"
 
 CONTROL_BIN="${FM_IDLE_EXIT_CONTROL_BIN:-$SCRIPT_DIR/fm-control.sh}"
 CREW_STATE_BIN="${FM_IDLE_EXIT_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 ACTION_SECS=${FM_IDLE_EXIT_ACTION_SECS:-900}
 case "$ACTION_SECS" in ''|*[!0-9]*) printf 'fm-idle-exit: FM_IDLE_EXIT_ACTION_SECS must be whole seconds\n' >&2; exit 2 ;; esac
+HELPER_GRACE_SECS=${FM_IDLE_EXIT_HELPER_GRACE_SECS:-180}
+case "$HELPER_GRACE_SECS" in ''|*[!0-9]*) printf 'fm-idle-exit: FM_IDLE_EXIT_HELPER_GRACE_SECS must be whole seconds\n' >&2; exit 2 ;; esac
 
 usage() { sed -n '2,/^set -eu$/s/^# \{0,1\}//p' "$0" | sed '$d'; }
 die() { printf 'fm-idle-exit: %s\n' "$1" >&2; exit "${2:-1}"; }
@@ -323,18 +341,117 @@ agent_idle() {  # <id>
   return 1
 }
 
+# The pids an endpoint's process view names as its terminal's root: the pane
+# shell on tmux and Herdr, the foreground chain on Rex. Any other backend, or
+# an unreadable view, prints nothing.
+tree_roots() {  # <id>
+  local meta backend target
+  meta=$(meta_of "$1")
+  backend=$(fm_backend_of_meta "$meta")
+  target=$(fm_backend_target_of_meta "$meta")
+  [ -n "$target" ] || target=$(fm_meta_get "$meta" window)
+  [ -n "$target" ] || return 1
+  fm_backend_source "$backend" >/dev/null 2>&1 || return 1
+  case "$backend" in
+    tmux) tmux display-message -p -t "$target" '#{pane_pid}' 2>/dev/null ;;
+    herdr)
+      fm_backend_herdr_parse_target "$target" || return 1
+      fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane process-info --pane "$FM_BACKEND_HERDR_PANE" 2>/dev/null \
+        | jq -r --arg pane "$FM_BACKEND_HERDR_PANE" '
+            .result | select(.type == "pane_process_info" and .process_info.pane_id == $pane)
+            | .process_info.shell_pid | select(type == "number" and . > 1) | floor' 2>/dev/null
+      ;;
+    rex) fm_backend_rex_live_pids "$target" 2>/dev/null | jq -r '.[]' 2>/dev/null ;;
+    *) return 1 ;;
+  esac | grep -E '^[0-9]+$'
+}
+
+# Succeeds only when nothing is running under the agent that it did not start
+# with its session (header "Idle means"); prints the reason and returns 1
+# otherwise, including whenever the tree cannot be read or classified.
+agent_tree_quiet() {  # <id>
+  local id=$1 roots members pid ppid age stat comm args argv0 amax=-1 agents='' busy
+  roots=$(tree_roots "$id" 2>/dev/null | tr '\n' ' ') || roots=
+  case "$roots" in *[0-9]*) ;; *) echo "its process tree could not be read"; return 1 ;; esac
+  members=$(LC_ALL=C ps -axo pid=,ppid=,etime=,stat=,comm= 2>/dev/null | awk -v roots="$roots" '
+    function secs(e,  d, p, n, i, s) {
+      d = 0
+      if (index(e, "-")) { split(e, p, "-"); d = p[1]; e = p[2] }
+      n = split(e, p, ":"); s = 0
+      for (i = 1; i <= n; i++) s = s * 60 + p[i]
+      return d * 86400 + s
+    }
+    BEGIN { n = split(roots, r, " "); for (i = 1; i <= n; i++) want[r[i]] = 1 }
+    {
+      pid[NR] = $1; ppid[NR] = $2; age[NR] = secs($3); stat[NR] = $4
+      c = $0
+      sub(/^[ \t]*[0-9]+[ \t]+[0-9]+[ \t]+[^ \t]+[ \t]+[^ \t]+[ \t]+/, "", c)
+      comm[NR] = c
+    }
+    END {
+      changed = 1
+      while (changed) {
+        changed = 0
+        for (i = 1; i <= NR; i++) if ((ppid[i] in want) && !(pid[i] in want)) { want[pid[i]] = 1; changed = 1 }
+      }
+      for (i = 1; i <= NR; i++) if (pid[i] in want) printf "%s\t%s\t%s\t%s\t%s\n", pid[i], ppid[i], age[i], stat[i], comm[i]
+    }' || true)
+  [ -n "$members" ] || { echo "its process tree could not be read"; return 1; }
+  while IFS=$'\t' read -r pid ppid age stat comm; do
+    [ -n "$pid" ] || continue
+    args=$(LC_ALL=C ps -p "$pid" -o args= 2>/dev/null) || continue
+    args=${args#"${args%%[![:space:]]*}"}
+    argv0=${args%%[[:space:]]*}
+    [ "$(fm_agent_process_classify "${comm##*/}" "$argv0" "$args" "$pid")" = agent ] || continue
+    agents="$agents $pid"
+    [ "$age" -le "$amax" ] || amax=$age
+  done <<EOF
+$members
+EOF
+  [ -n "$agents" ] || { echo "no agent process was found in its terminal"; return 1; }
+  busy=$(printf '%s\n' "$members" | awk -F'\t' -v agents="$agents" -v amax="$amax" -v grace="$HELPER_GRACE_SECS" '
+    BEGIN { n = split(agents, a, " "); for (i = 1; i <= n; i++) root[a[i]] = 1 }
+    { pid[NR] = $1; ppid[NR] = $2; age[NR] = $3; stat[NR] = $4; comm[NR] = $5 }
+    END {
+      changed = 1
+      for (i = 1; i <= NR; i++) if (ppid[i] in root) under[pid[i]] = 1
+      while (changed) {
+        changed = 0
+        for (i = 1; i <= NR; i++) if ((ppid[i] in under) && !(pid[i] in under)) { under[pid[i]] = 1; changed = 1 }
+      }
+      for (i = 1; i <= NR; i++)
+        if ((pid[i] in under) && stat[i] !~ /^Z/ && age[i] + grace < amax) { printf "%s %s\n", pid[i], comm[i]; exit }
+    }')
+  [ -z "$busy" ] || { echo "something it started is still running under its agent ($busy)"; return 1; }
+}
+
+# The harness answered the stop with its background-work exit picker: close it
+# with Escape, never Enter, so the agent keeps running its job.
+dismiss_exit_picker() {  # <id>
+  local meta backend target screen
+  meta=$(meta_of "$1")
+  backend=$(fm_backend_of_meta "$meta")
+  target=$(fm_backend_target_of_meta "$meta")
+  [ -n "$target" ] || target=$(fm_meta_get "$meta" window)
+  fm_backend_source "$backend" >/dev/null 2>&1 || return 0
+  screen=$(fm_backend_visible_capture "$backend" "$target" "fm-$1" 2>/dev/null) || return 0
+  fm_composer_blocking_dialog "$screen" >/dev/null || return 0
+  fm_backend_send_key "$backend" "$target" Escape "fm-$1" >/dev/null 2>&1 || true
+}
+
 inbox_pending() {  # <id>
   find "$STATE/$1.inbox" -maxdepth 1 -name '*.msg' 2>/dev/null | grep -q .
 }
 
-# An agent that is alive, exactly idle, and has nothing waiting in its inbox;
-# prints the refusal and returns 1 otherwise.
+# An agent that is alive, exactly idle, has nothing waiting in its inbox, and
+# has nothing running under it; prints the refusal and returns 1 otherwise.
 agent_quiet() {  # <id>
   local state
   inbox_pending "$1" && { echo "an instruction is waiting in its inbox"; return 1; }
   state=$(agent_state_of "$1")
   [ "$state" = alive ] || { echo "its agent reads $state, not alive"; return 1; }
   agent_idle "$1" || { echo "its agent is not idle"; return 1; }
+  agent_tree_quiet "$1" || return 1
 }
 
 newest_handled_mtime() {  # <id>
@@ -539,6 +656,11 @@ cmd_exit() {
   fm_lock_release "$meta_lock" || true
   out=$(FM_HOME=$FM_HOME fm_run_timed "$ACTION_SECS" "$CONTROL_BIN" "$id" exit 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
+    if printf '%s\n' "$out" | grep -q 'Claude background-task exit picker'; then
+      dismiss_exit_picker "$id"
+      rm -f -- "$(record_path "$id")"
+      die "not stopping $id: its harness reports background work still running" 3
+    fi
     if [ "$(agent_state_of "$id")" = alive ]; then
       rm -f -- "$(record_path "$id")"
     fi
