@@ -17,7 +17,7 @@ It is not a second mate and keeps no records for firstmate.
    The only thing that reaches firstmate is `fm-topic.sh send`.
 3. Send only an actionable request, written so firstmate can act without this chat: what to do, in which project, and any limit the user stated.
    Do not send chatter, progress, or ideas the user has not asked for.
-4. Pick one short topic name for this session (letters, digits, dash) and reuse it for every send.
+4. Pick one short topic name for this session (letters, digits, dash, underscore) and reuse it for every send.
 5. After `send`, read firstmate's answer with `fm-topic.sh reply --wait 100 <request-id>` before telling the user the outcome.
    If it exits 4 there is no answer yet: say so, and try again later rather than guessing.
 6. A request from here never authorizes a merge, metered spend, a destructive or irreversible action, a credential, or a security-sensitive change.
