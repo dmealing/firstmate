@@ -79,6 +79,8 @@ test_send_validation() {
   printf 'line one\nline two\n' | topic send --topic stdin - >/dev/null || fail "send reads stdin"
   run_rc out topic send --topic 'bad name' x
   assert_equals 1 "$RC" "invalid topic name is refused"
+  run_rc out topic send --topic a.b x
+  assert_equals 1 "$RC" "a topic name with a dot is refused"
   run_rc out topic send --topic demo '   '
   assert_equals 1 "$RC" "empty request is refused"
   run_rc out topic send hello
@@ -115,6 +117,9 @@ test_reply_acknowledged_and_wait() {
   wait
   assert_equals 0 "$rc" "--wait returns once answered"
   assert_equals "Done late." "$out" "--wait returns an answer that arrives while waiting"
+  run_rc out topic reply --wait 008 topic.wt.later
+  assert_equals 0 "$RC" "a zero-padded --wait is read as decimal"
+  assert_equals "Done late." "$out" "a zero-padded --wait returns the answer"
   run_rc out topic reply topic.wt.nothere
   assert_equals 1 "$RC" "unknown request id exits 1"
   pass "reply names pending states and waits for a late answer"
