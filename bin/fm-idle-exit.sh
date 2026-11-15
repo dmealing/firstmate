@@ -370,7 +370,7 @@ tree_roots() {  # <id>
 # with its session (header "Idle means"); prints the reason and returns 1
 # otherwise, including whenever the tree cannot be read or classified.
 agent_tree_quiet() {  # <id>
-  local id=$1 roots members pid ppid age stat comm args argv0 amax=-1 agents='' busy
+  local id=$1 roots members pid age comm args argv0 amax=-1 agents='' busy
   roots=$(tree_roots "$id" 2>/dev/null | tr '\n' ' ') || roots=
   case "$roots" in *[0-9]*) ;; *) echo "its process tree could not be read"; return 1 ;; esac
   members=$(LC_ALL=C ps -axo pid=,ppid=,etime=,stat=,comm= 2>/dev/null | awk -v roots="$roots" '
@@ -397,7 +397,7 @@ agent_tree_quiet() {  # <id>
       for (i = 1; i <= NR; i++) if (pid[i] in want) printf "%s\t%s\t%s\t%s\t%s\n", pid[i], ppid[i], age[i], stat[i], comm[i]
     }' || true)
   [ -n "$members" ] || { echo "its process tree could not be read"; return 1; }
-  while IFS=$'\t' read -r pid ppid age stat comm; do
+  while IFS=$'\t' read -r pid _ age _ comm; do
     [ -n "$pid" ] || continue
     args=$(LC_ALL=C ps -p "$pid" -o args= 2>/dev/null) || continue
     args=${args#"${args%%[![:space:]]*}"}

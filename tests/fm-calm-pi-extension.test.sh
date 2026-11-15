@@ -588,6 +588,8 @@ function makeHost(session) {
     // Pi reads its session through runtimeHost, which a session replacement swaps.
     runtimeHost: { session },
     compactionQueuedMessages: [],
+    // Newer Pi lists user bash output still pending in this array ahead of the queued rows.
+    pendingBashComponents: [],
     statuses: [],
     warnings: [],
     editorText: "",
@@ -623,9 +625,11 @@ visibility.setCalmPresentation(true);
   const host = makeHost(session);
   session.steering.push(watcherTwo);
   session.followUp.push(watcherOne, captainText, legacyAway, lookalike);
+  host.pendingBashComponents.push({ render: () => ["PENDING_USER_BASH_ROW"] });
   host.updatePendingMessagesDisplay();
   const rows = host.rows();
   assertNoOperationalText(rows, "queued listing under Calm");
+  check(rows.includes("PENDING_USER_BASH_ROW"), `Calm's queued listing dropped Pi's pending user bash row: ${rows}`);
   check(rows.includes(`Follow-up: ${captainText}`), `captain's queued row disappeared: ${rows}`);
   check(rows.includes(lookalike), `an unauthenticated lookalike was hidden: ${rows}`);
   check(rows.includes("to edit all queued messages"), `dequeue hint missing: ${rows}`);
