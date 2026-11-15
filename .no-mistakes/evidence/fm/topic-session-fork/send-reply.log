@@ -1,0 +1,37 @@
+# 1 send
+queued topic.chat1.c0002d134c4ad0fd note=1794772636-QOZB4T
+rc=0
+# replay
+replay topic.chat1.c0002d134c4ad0fd note=1794772636-QOZB4T
+rc=0
+# distinct request-id
+queued topic.chat1.again note=1794772636-0zeR6i
+rc=0
+# stdin
+queued topic.chat1.71d8cdc9654c5d66 note=1794772636-yFOhb3
+rc=0
+# dot topic refused
+fm-topic: invalid topic name (use 1-48 characters: A-Za-z0-9_-)
+rc=1
+# collision pair
+queued topic.a.b.x note=1794772636-HpzgAp
+fm-topic: invalid topic name (use 1-48 characters: A-Za-z0-9_-)
+rc=1
+# list
+topic.chat1.again	pending	please check the build
+topic.chat1.c0002d134c4ad0fd	pending	please check the build
+topic.chat1.71d8cdc9654c5d66	pending	multi line
+rc=0
+topic.chat1.bee98bf120e89063
+# reply pending
+fm-topic: no answer yet (pending)
+rc=4
+# wait 008
+fm-topic: no answer yet (pending)
+rc=4
+# non topic rid
+fm-topic: only topic request ids (topic.<name>.<suffix>) can be read here
+rc=1
+# no home
+fm-topic: no firstmate home: set FM_TOPIC_HOME to the home directory, or write its path on one line to /nonexistent
+rc=1

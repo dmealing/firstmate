@@ -1,0 +1,4 @@
+FM_TEST_COMPLETE
+FM_TEST_END 2026-11-15T19:58:14Z tests/fm-topic.test.sh exit=0 duration_ms=5710 gate_skip=false
+FM_TEST_END 2026-11-15T19:58:16Z tests/fm-documentation-audiences.test.sh exit=0 duration_ms=2528 gate_skip=false
+FM_TEST_END 2026-11-15T19:58:22Z tests/fm-inbox.test.sh exit=0 duration_ms=5097 gate_skip=false

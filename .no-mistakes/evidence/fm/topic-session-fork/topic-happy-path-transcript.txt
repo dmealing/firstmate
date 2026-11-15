@@ -1,0 +1,18 @@
+== topic session: send (cwd /mnt/scratch/fm-topic-live.QQKQOj/chat, no project)
+queued topic.weekend.ferry note=1794770766-1k6y6m
+== topic session: reply before firstmate reads it
+fm-topic: no answer yet (pending)
+exit=4
+== firstmate: drain (shows origin tag and trust notice)
+1794770706-bOxgpx
+    ordinary captain note
+
+== firstmate: ack and answer
+already-acked 1794770766-1k6y6m
+fm-inbox: no such note: 1794770766-1k6y6m
+== topic session: reply --wait 100
+fm-topic: no answer yet (pending)
+exit=4
+== topic session: list
+topic.weekend.ferry	pending	Look up tomorrow's ferry times and report back.
+exit=0
