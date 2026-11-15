@@ -18,7 +18,8 @@ fm_live_gate opt-in FM_HERDR_CLAUDE_STATE_MOD_TURN_LIVE herdr jq claude
 # shellcheck source=tests/herdr-claude-state-mod-fixture.sh
 . "$ROOT/tests/herdr-claude-state-mod-fixture.sh" herdr-claude-state-turn
 
-launch_claude
+# No extra env assignments: launch_claude's arguments are optional, and the empty one says so.
+launch_claude ''
 wait_for_composer
 wait_reported 'idle/empty' "an idle session at start"
 
