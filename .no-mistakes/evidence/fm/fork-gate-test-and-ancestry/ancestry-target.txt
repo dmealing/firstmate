@@ -1,0 +1,4 @@
+# ancestry test at target (85200e01)
+ok - session-lock: a trusted same-session id keeps owning a recycled background chain, and nothing weaker does
+ok - session-lock e2e: a background session keeps its lock and its supervision across a recycled helper chain and a same-process session-id change
+rc=0

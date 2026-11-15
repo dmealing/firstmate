@@ -1,0 +1,9 @@
+# host adoption probe (orphan whose intermediate parent was SIGTERMed)
+intermediate pid=752060 (ppid 752059)
+grandchild sleep pid=752062 ppid before=752060
+grandchild ppid after=1526
+adopter comm=systemd cmd=/lib/systemd/systemd --user
+# pid-1 / subreapers on host:
+    PID    PPID COMMAND
+      1       0 systemd
+   1526       1 systemd

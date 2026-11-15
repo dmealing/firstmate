@@ -1,0 +1,3 @@
+# ancestry test at base (c83924e5)
+ok - session-lock: a trusted same-session id keeps owning a recycled background chain, and nothing weaker does
+not ok - the pty-host was not reparented to init after the daemon ended
