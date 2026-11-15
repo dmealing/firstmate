@@ -1917,7 +1917,7 @@ test_bootstrap_rereads_after_partial_propagation() {
 }
 
 test_config_push_propagates_reports_without_ff_or_nudge() {
-  local w c1 sm_real old_head out err status out2 tmp log instruction
+  local w c1 sm_real old_head out err status out2 tmp log instruction out3 inbox_before
   w=$(new_world config-push-basic)
   c1=$(git -C "$w/main" rev-parse HEAD)
   add_sm_worktree "$w" sm "$c1"
@@ -1989,6 +1989,25 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
   assert_not_contains "$out2" "config-reread: sent" \
     "unchanged config must not send a reread message"
   [ ! -s "$log" ] || fail "unchanged config push still invoked tmux send: $(cat "$log")"
+
+  # A mate stopped on purpose while idle reads its config when it relaunches,
+  # so a change is pushed to its home without waking it for a reread.
+  printf 'kind=secondmate\nexited_at=1\n' > "$w/home/state/sm.idle-exit"
+  inbox_before=$(inbox_stream "$w/home/state" sm)
+  printf 'claude\n' > "$w/home/config/crew-harness"
+  : > "$log"
+  out3=$(run_config_push "$w" "$log" 2>"$err"); status=$?
+  expect_code 0 "$status" "config push to an idle-stopped mate should succeed"
+  assert_contains "$out3" "crew-harness: pushed" \
+    "config push must still write config into an idle-stopped mate's home"
+  assert_contains "$out3" "secondmate sm: deferred: stopped while idle" \
+    "config push must say the reread waits for the idle-stopped mate's relaunch"
+  assert_not_contains "$out3" "config-reread: sent" \
+    "config push must not claim a reread was sent to an idle-stopped mate"
+  assert_equals "$inbox_before" "$(inbox_stream "$w/home/state" sm)" \
+    "config push must not queue a reread message that would wake an idle-stopped mate"
+  [ ! -s "$log" ] || fail "config push to an idle-stopped mate still invoked tmux: $(cat "$log")"
+  rm -f "$w/home/state/sm.idle-exit"
   pass "B12 config-push propagates via shared live discovery, reports items, rereads on change only, and does not fast-forward"
 }
 

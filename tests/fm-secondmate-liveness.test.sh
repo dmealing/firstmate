@@ -406,6 +406,36 @@ test_sweep_respawns_confirmed_dead_secondmate() {
   pass "sweep: a confirmed-dead secondmate endpoint is killed and respawned"
 }
 
+# A mate bin/fm-idle-exit.sh stopped on purpose leaves its record behind; the
+# sweep must leave that dead endpoint down, while a dead mate with no record (a
+# crash) is still killed and respawned in the same sweep.
+test_sweep_leaves_idle_exited_secondmate_down() {
+  local w fb tmuxfb log out
+  w=$(new_world sweep-idle-exit)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  printf 'kind=secondmate\nexited_at=1\n' > "$w/home/state/sm1.idle-exit"
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+
+  assert_not_contains "$(cat "$log")" "new-window" \
+    "a secondmate stopped on purpose while idle must not be relaunched by the sweep"
+  assert_not_contains "$(cat "$log")" "kill-window" \
+    "a secondmate stopped on purpose while idle must keep its endpoint"
+  assert_absent "$w/home/state/.secondmate-relaunch-sm1" \
+    "a deliberate stop must not consume a relaunch attempt"
+  assert_present "$w/home/state/sm1.idle-exit" "the sweep must keep the deliberate-stop record"
+
+  rm -f "$w/home/state/sm1.idle-exit"
+  : > "$log"
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+  assert_contains "$(cat "$log")" "new-window" \
+    "a dead secondmate without a deliberate-stop record (a crash) must still be relaunched"
+  : "$out"
+  pass "sweep: a deliberately stopped idle secondmate stays down while a crash still relaunches"
+}
+
 test_sweep_respawns_on_the_recorded_backend() {
   local w fb tmuxfb log out
   w=$(new_world sweep-pinned-backend)
@@ -995,6 +1025,7 @@ test_tmux_agent_state_rejects_malformed_targets_before_probe
 test_herdr_agent_state_preserves_husk_classifier
 test_agent_state_dispatcher_and_compatibility
 test_sweep_respawns_confirmed_dead_secondmate
+test_sweep_leaves_idle_exited_secondmate_down
 test_sweep_respawns_on_the_recorded_backend
 test_sweep_recovers_the_durable_secondmate_account
 test_sweep_serializes_distinct_secondmate_relaunches

@@ -397,7 +397,7 @@ family_for_basename() {
       ;;
     fm-backend-herdr.test.sh|fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
     fm-backend-t3code.test.sh|fm-t3-mcp.test.sh|fm-tmux-agent-liveness.test.sh|\
-    fm-control.test.sh|fm-control-relaunch.test.sh|\
+    fm-control.test.sh|fm-control-relaunch.test.sh|fm-idle-exit.test.sh|\
     fm-herdr-session-cleanup.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|\
     fm-send-inbox.test.sh|fm-spawn-batch.test.sh|\
     fm-spawn-dispatch-profile.test.sh|fm-claude-trust.test.sh|\
@@ -827,6 +827,7 @@ tests/fm-herdr-version-floor-live-e2e.test.sh 50
 tests/fm-home-summary-refresh.test.sh 37057
 tests/fm-host-mirror-live-e2e.test.sh 79
 tests/fm-host-mirror.test.sh 11587
+tests/fm-idle-exit.test.sh 30000
 tests/fm-inactive-reconcile.test.sh 60823
 tests/fm-inbox.test.sh 6062
 tests/fm-jev-mem-guard.test.sh 336

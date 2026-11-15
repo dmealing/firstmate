@@ -14,6 +14,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), [Codex native Stop park](#codex-native-stop-park-configcodex-stop-park), [warm-cache compaction](#warm-cache-compaction-configwarm-compact), and [Calm preference](#calm-preference-configcalm) |
 | Persistent secondmates | [Secondmate routes](#secondmate-routes-datasecondmatesmd) |
 | Review bots on owned GitHub pull requests | [Contribution review bots](#contribution-review-bots-configcontribution-review-bots) |
+| Stopping idle workers and secondmates to free memory | [Idle session exit](#idle-session-exit-configidle-exit) |
 | Per-run overrides and tuning | [Environment variables](#environment-variables) |
 
 ## FM_HOME
@@ -810,6 +811,33 @@ The monitor only notifies; worker briefs and waiting rules are unchanged by the 
 With the file absent, nothing is armed and an already armed check prints nothing.
 Creating the flag takes effect at the next session start, or immediately after `bin/fm-pr-health.sh arm`.
 The flag is a home-local preference and is not inherited by secondmate homes.
+
+## Idle session exit (config/idle-exit)
+
+Firstmate stops idle agent sessions to free their memory and relaunches them when they are needed again.
+It is on by default in every home.
+A ship or scout worker stops when it has waited on the captain or an owner with no known end for longer than the wait threshold, or at once when it is paused with an `until` time more than the dated-pause threshold away; a pause declared before a relaunch does not stop the worker again.
+A local secondmate stops when it has had no work under way for longer than its idle threshold.
+A stop keeps the worker's local copy, branch, uncommitted changes, instructions, and task record, and a relaunch starts a fresh agent in the same place with a note naming the wait and why it was relaunched.
+A steer sent to a stopped session relaunches it before the doorbell rings, and the watcher relaunches a stopped worker when its wait time arrives or its wait is answered or released, and a stopped secondmate when it receives work.
+A stopped secondmate is left down by the secondmate liveness check, while a secondmate that crashes is still relaunched exactly as before.
+A config push or session start writes changed inherited config into a stopped secondmate's home without waking it for a reread, because it reads its current config when it relaunches.
+
+The optional local, gitignored `config/idle-exit` file is the one place these settings live, as `key=value` lines:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `workers` | `on` | `off` stops no more workers |
+| `secondmates` | `on` | `off` stops no more secondmates |
+| `worker_wait_secs` | `4500` | how long a wait with no known end must last before its worker stops |
+| `worker_until_secs` | `4500` | a dated pause stops its worker only while its `until` time is more than this far away |
+| `secondmate_idle_secs` | `4500` | how long a secondmate must have had no work before it stops |
+
+Each default is 75 minutes: the 60-minute life of the prompt cache these sessions use plus 15 minutes of margin, so a wait that ends sooner resumes on a warm cache instead of paying a relaunch.
+Turning a behavior off stops new exits only; a session already stopped still relaunches on its triggers.
+A malformed value turns its behavior off and the watcher reports it once.
+The file is home-local and not inherited by secondmate homes.
+The full behavior contract, the exact qualifying waits, and the record format are owned by [`bin/fm-idle-exit.sh`](../bin/fm-idle-exit.sh); the watcher calls its `tick` command on each check sweep.
 
 ## PR registration scan (config/pr-register-scan)
 

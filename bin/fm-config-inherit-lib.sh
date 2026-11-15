@@ -1310,15 +1310,26 @@ fm_config_reread_quarantine_pending() {
 # SHA values, selected profiles, or data/captain-shared.md. No-op (return 0) when
 # nothing changed and no pending delivery exists. On publication or send
 # failure, print a concrete CONFIG_REREAD retry diagnostic to stdout and return
-# non-zero - never claim the live agent reread the values.
+# non-zero - never claim the live agent reread the values. A secondmate that
+# bin/fm-idle-exit.sh stopped while idle (its record in the source home's state)
+# has no live agent to nudge and reads its current config when it relaunches,
+# so nothing is written or sent: a changed item prints one CONFIG_REREAD
+# deferred line and the call succeeds, instead of waking the mate for it.
 fm_config_send_reread_nudge() {
   local id=$1 dest_home=$2 report=$3
   local dest_home_abs state source_home_abs changed_items pending_paths stage_paths delivery_paths
   local stage_path instruction_path current_stage_path exact_tmp
   local send_failures retry_report_paths retry_report_path retry_stage_path retry_record_path
+  local source_state
   [ -n "$id" ] || return 1
   [ -n "$dest_home" ] || return 1
   [ -n "$report" ] && [ -f "$report" ] || return 1
+  source_state=${FM_STATE_OVERRIDE:-${FM_HOME:+$FM_HOME/state}}
+  if [ -n "$source_state" ] && [ -f "$source_state/$id.idle-exit" ]; then
+    [ -z "$(fm_config_reread_changed_items "$report")" ] \
+      || printf 'CONFIG_REREAD: secondmate %s: deferred: stopped while idle; it reads the current config when it relaunches\n' "$id"
+    return 0
+  fi
   dest_home_abs=$(cd "$dest_home" 2>/dev/null && pwd -P) || {
     printf 'CONFIG_REREAD: secondmate %s: send failed: destination home is not readable\n' "$id"
     return 1

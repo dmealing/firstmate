@@ -24,7 +24,7 @@
 # Output is one stable, parseable, token-tight line firstmate can read every
 # heartbeat:
 #
-#   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|remote-endpoint|none> · <detail>
+#   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|remote-endpoint|idle-exit|none> · <detail>
 #
 # A run-step reading whose run came from inventory selection ends its detail
 # with a `run: <id>` field naming that run, and a terminal one appends
@@ -311,6 +311,25 @@ REMOTE_HOST=$(meta_value remote_host)
 # probe proves nothing for it - the remote arm below reads the true source.
 if [ -z "$REMOTE_HOST" ] && { [ -z "$WT" ] || [ ! -d "$WT" ]; }; then
   emit unknown none "worktree gone (torn down?)"
+fi
+
+# A session stopped while idle (bin/fm-idle-exit.sh, which owns the record)
+# stopped its agent on purpose; its record, not the stopped pane, is the
+# current state.
+IDLE_EXIT_RECORD=$STATE/$ID.idle-exit
+if [ -f "$IDLE_EXIT_RECORD" ]; then
+  IDLE_EXIT_AT=$(fm_meta_get "$IDLE_EXIT_RECORD" exited_at)
+  IDLE_EXIT_WHEN=$(date -u -r "$IDLE_EXIT_AT" +%Y-%m-%dT%H:%MZ 2>/dev/null || date -u -d "@$IDLE_EXIT_AT" +%Y-%m-%dT%H:%MZ 2>/dev/null || printf '%s' "$IDLE_EXIT_AT")
+  if [ -n "$(fm_meta_get "$IDLE_EXIT_RECORD" relaunch_error)" ]; then
+    emit blocked idle-exit "stopped while idle since $IDLE_EXIT_WHEN; its relaunch failed - run bin/fm-idle-exit.sh wake $ID --trigger <why>"
+  fi
+  if [ -n "$(fm_meta_get "$IDLE_EXIT_RECORD" pending)" ]; then
+    emit paused idle-exit "stopping while idle since $IDLE_EXIT_WHEN; the agent's stop is not yet confirmed"
+  fi
+  if [ "$(fm_meta_get "$IDLE_EXIT_RECORD" kind)" = secondmate ]; then
+    emit paused idle-exit "stopped while idle since $IDLE_EXIT_WHEN; relaunches on its next routed message"
+  fi
+  emit paused idle-exit "stopped during its declared wait since $IDLE_EXIT_WHEN; relaunches when the wait clears or a steer arrives: $(status_line_note "$(fm_meta_get "$IDLE_EXIT_RECORD" wait)")"
 fi
 
 # --- status log ------------------------------------------------------------

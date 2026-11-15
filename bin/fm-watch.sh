@@ -642,6 +642,9 @@ inbox_steer_check() {  # <window> <task>
   agent_state=$(fm_backend_agent_state "$backend" "$w" 2>/dev/null || true)
   case "$agent_state" in
     dead|missing)
+      # A session stopped while idle is relaunched by bin/fm-idle-exit.sh's
+      # tick because this message is waiting; the ladder resumes once it is up.
+      [ ! -e "$STATE/$task.idle-exit" ] || return 0
       if [ "$verb" = retry ]; then
         fm_task_inbox_clear_retry "$STATE" "$task" "$rec" || true
       else
@@ -1899,6 +1902,13 @@ wedge_dead_record() {  # <window> <since-file> <triage-label> <idle-age> <pane-h
   local win=$1 since_file=$2 label=$3 age=$4 hash=$5 task=$6 key marker agent_state detail reason gen id
   key=$(window_key "$win")
   marker="$STATE/.dead-reported-$key"
+  # A session stopped while idle stopped on purpose; bin/fm-idle-exit.sh's tick
+  # relaunches it and owns its wakes.
+  if [ -e "$STATE/$task.idle-exit" ]; then
+    date +%s > "$since_file"
+    triage_log "absorbed $label (stopped while idle, relaunched by fm-idle-exit.sh tick, idle ${age}s): $win"
+    return 0
+  fi
   agent_state=$(fm_backend_agent_state "$(window_backend "$win")" "$win" 2>/dev/null) || agent_state=unreadable
   case "$agent_state" in
     dead) detail='the endpoint is still there with no agent running in it' ;;
@@ -4128,6 +4138,16 @@ EOF
     if [ -n "$rejected_checks" ]; then
       reason="check: rejected unauthenticated state checks:$rejected_checks"
       fm_wake_append check unauthenticated-state-checks "$reason" || exit 1
+      touch "$STATE/.last-check"
+      wake "$reason"
+    fi
+    # Sessions stopped while idle and their relaunches (bin/fm-idle-exit.sh
+    # owns every rule and starts each stop or relaunch detached; it prints only
+    # failures and a malformed-settings line).
+    idle_exit_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+      "$SCRIPT_DIR/fm-idle-exit.sh" tick 2>/dev/null) || true
+    if [ -n "$idle_exit_out" ]; then
+      reason="check: idle-exit: $(printf '%s' "$idle_exit_out" | paste -sd ';' - | sed 's/;/; /g')"
       touch "$STATE/.last-check"
       wake "$reason"
     fi

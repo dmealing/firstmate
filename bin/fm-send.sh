@@ -52,6 +52,8 @@
 # ordinary record by the worker's acknowledgement move into handled/.
 # bin/fm-task-inbox-lib.sh owns the record format, doorbell line, and retry and
 # escalation policy for ordinary and fire-and-forget records.
+# A local task whose session was stopped while idle (bin/fm-idle-exit.sh owns
+# that record) is relaunched after its steer is recorded and before the ring.
 # On pane backends, the composer pre-check before the ring is ADVISORY only: when
 # the composer visibly holds pending text the ring is skipped with a notice and
 # the watcher re-rings an ordinary record later; no composer verdict is
@@ -1208,6 +1210,25 @@ else
     if [ -n "$RESOLVE_KEYS" ]; then
       fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 1
       fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 1
+    fi
+    # A session stopped while idle is relaunched before the ring, so the steer
+    # just recorded reaches a live agent (bin/fm-idle-exit.sh owns the record
+    # and the relaunch). The steer is already durably sent: a failed relaunch
+    # never changes the exit status, and the watcher's tick retries it.
+    if [ -e "$STATE/$INBOX_TASK_ID.idle-exit" ]; then
+      idle_exit_config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
+      if idle_exit_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+          FM_CONFIG_OVERRIDE="$idle_exit_config" \
+          "$SCRIPT_DIR/fm-idle-exit.sh" wake "$INBOX_TASK_ID" \
+          --trigger "an instruction arrived in its inbox" 2>&1); then
+        echo "fm-send: $INBOX_TASK_ID had been stopped while idle; relaunched it to read the steer recorded at $INBOX_RECORD" >&2
+        if fm_backend_validate_task_endpoint "$TARGET_META" "$INBOX_TASK_ID" >/dev/null 2>&1 \
+          && [ -n "${FM_BACKEND_VALIDATED_TARGET:-}" ]; then
+          T=$FM_BACKEND_VALIDATED_TARGET
+        fi
+      else
+        echo "fm-send: $INBOX_TASK_ID is stopped while idle and its relaunch failed ($(printf '%s\n' "$idle_exit_out" | tail -1)); the steer is durably recorded at $INBOX_RECORD and the watcher retries the relaunch" >&2
+      fi
     fi
     # Ring the doorbell, best-effort: no ring outcome changes the exit status,
     # because the watcher owns loss detection from here, either through its

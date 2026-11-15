@@ -123,7 +123,7 @@ fm_secondmate_liveness_recent_attempts() {  # <id> <window-secs>
 #
 # Read-only probe of one registered secondmate's recorded endpoint. Populates:
 #
-#   FM_SM_LIVE_STATUS  silent | alive | relaunchable | skipped
+#   FM_SM_LIVE_STATUS  silent | alive | relaunchable | skipped | idle-exited
 #   FM_SM_LIVE_STATE   the raw classifier/state word
 #   FM_SM_LIVE_KILL    1 when relaunch must first kill a confirmed-dead local
 #                      endpoint (its shell husk occupies the name)
@@ -137,7 +137,11 @@ fm_secondmate_liveness_recent_attempts() {  # <id> <window-secs>
 #   FM_SM_LIVE_LINE    verbose already-live line body, on alive
 #
 # `silent` means the meta records no endpoint at all - that shape is owned by
-# secondmate-provisioning recovery, not liveness.
+# secondmate-provisioning recovery, not liveness. `idle-exited` means a local
+# endpoint reads dead or missing while bin/fm-idle-exit.sh's record says the
+# mate was stopped on purpose; nothing relaunches it here, because that script
+# relaunches it on its next routed message. A death with no record stays
+# relaunchable exactly as before.
 #
 # The caller must hold fm_secondmate_liveness_lock for <id> whenever a
 # relaunchable verdict could be acted on.
@@ -251,6 +255,11 @@ fm_secondmate_liveness_probe() {  # <meta> <id> <full|poll>
       FM_SM_LIVE_LINE="secondmate $id already live (backend=$backend)"
       ;;
     dead|missing)
+      if [ -e "$STATE/$id.idle-exit" ] || [ -L "$STATE/$id.idle-exit" ]; then
+        FM_SM_LIVE_STATUS=idle-exited
+        FM_SM_LIVE_REASON="stopped on purpose while idle; relaunches on its next routed message"
+        return 0
+      fi
       FM_SM_LIVE_STATUS=relaunchable
       if [ "$agent_state" = dead ] && [ "$backend" = t3code ]; then
         FM_SM_LIVE_RESUME=1
