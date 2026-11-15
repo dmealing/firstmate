@@ -932,9 +932,9 @@ SH
 }
 
 # Start the fixture tree detached from this suite's own process tree: the
-# launcher exits immediately, so the tree is reparented to init and the ancestry
-# walk terminates inside the fixture. Returns once the hook has recorded its exit
-# code.
+# launcher exits immediately, so the tree is reparented to its reaper and the
+# ancestry walk terminates inside the fixture. Returns once the hook has recorded
+# its exit code.
 run_fixture_tree() {  # <dir> <session-bin> [<daemon-bin>]
   local dir=$1 session_bin=$2 daemon_bin=${3:-} i
   if [ -n "$daemon_bin" ]; then
