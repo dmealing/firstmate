@@ -84,13 +84,13 @@ inbox() {
 
 need_python() { command -v python3 >/dev/null 2>&1 || die "python3 is required"; }
 
-valid_topic() { case "$1" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac; [ "${#1}" -le 48 ]; }
+valid_topic() { case "$1" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac; [ "${#1}" -le 48 ]; }
 valid_suffix() { case "$1" in ''|*[!A-Za-z0-9._:-]*) return 1 ;; esac; [ "${#1}" -le 64 ]; }
 
 pick_topic() {  # <flag value>
   local t=${1:-${FM_TOPIC_NAME:-}}
   [ -n "$t" ] || die "no topic name: pass --topic <name> or set FM_TOPIC_NAME"
-  valid_topic "$t" || die "invalid topic name (use 1-48 characters: A-Za-z0-9._-)"
+  valid_topic "$t" || die "invalid topic name (use 1-48 characters: A-Za-z0-9_-)"
   printf '%s\n' "$t"
 }
 
@@ -191,7 +191,7 @@ cmd_reply() {
       --wait)
         [ "$#" -ge 2 ] || die "usage: fm-topic.sh reply [--wait <seconds>] <request-id>"
         case "$2" in ''|*[!0-9]*) die "--wait takes whole seconds" ;; esac
-        wait=$2; shift 2 ;;
+        wait=$((10#$2)); shift 2 ;;
       -*) die "unknown option for reply: $1" ;;
       *) [ -z "$rid" ] || die "usage: fm-topic.sh reply [--wait <seconds>] <request-id>"; rid=$1; shift ;;
     esac
