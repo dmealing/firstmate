@@ -1101,6 +1101,7 @@ The [`fm-spawn.sh` header](../bin/fm-spawn.sh) owns the exact base rule, and the
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked [`.no-mistakes.yaml`](../.no-mistakes.yaml) sets `test.evidence.store_in_repo: true` and runs the canonical [shell/workflow lint](../bin/fm-lint.sh) followed by the [Pi production-consumer typecheck](../tests/fm-pi-primary-types.test.sh) in the compiler-owning lint phase.
+Its `test.instructions` keep the gate's Test step on the specific scripts a change touches and off full-suite or family walks, which CI owns, and tell it to stop and report any command expected to run longer than about ten minutes.
 Storing evidence in the repo publishes each run's test artifacts to the orphan `no-mistakes/evidence` branch and links them from the PR body, instead of keeping them on local disk under the no-mistakes home.
 
 That branch shares no history with code branches, so evidence never enters a pushed feature branch or the default branch; the worktree's `.no-mistakes/` stays local and CI rejects tracked entries under that path.

@@ -39,6 +39,9 @@ commands:
 # The evidence is not committed to the feature or default branch.
 test:
   instructions: |
+    Validate with the specific test scripts the change touches or adds and the checks they name.
+    Never run the full suite (bin/fm-test-run.sh --all) or walk a test family; CI owns broad regression, and the full suite cannot finish inside the gate agent's per-attempt timeout.
+    If a command would take more than about ten minutes, stop and report it instead of running it.
     Run live Herdr scenarios only through bin/fm-herdr-lab.sh with a named non-default fm-lab-* session, following that helper's prepare, provision, run, and teardown contract exactly.
     Never touch the live default Herdr session or fleet panes.
     Prefer a throwaway lab for spawn, long-launch, and Claude-path proofs, and tear it down in the same evidence turn.
