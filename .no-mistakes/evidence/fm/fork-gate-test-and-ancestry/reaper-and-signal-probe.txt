@@ -1,0 +1,8 @@
+# Orphan adoption and TERM disposition on this host
+## Who adopts an orphan (fresh setsid session):
+orphan sleep ppid=1526 (systemd), user doug
+pid 1 is: systemd
+
+## Signal dispositions of a backgrounded bash child (SigIgn bitmask; bit 14 = SIGTERM):
+host: SigIgn 0x6 (INT,QUIT only; TERM is delivered)
+inside 'unshare --user --pid --fork': SigIgn 0x4002 for pid 1 and its children (TERM ignored)
