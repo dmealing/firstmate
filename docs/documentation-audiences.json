@@ -638,6 +638,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/topic-sessions.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/voice-relay.md",
       "audience": "operator-current"
     },
@@ -655,6 +659,10 @@
     },
     {
       "path": "skills/stow/SKILL.md",
+      "audience": "public-product"
+    },
+    {
+      "path": "skills/topic-session/SKILL.md",
       "audience": "public-product"
     },
     {
