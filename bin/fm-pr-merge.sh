@@ -598,15 +598,17 @@ fi
 # behind is the number of base-branch commits the head lacks, or "unreadable"
 # when the forge could not answer. The remedy is named in every refusal.
 stale_base_refusal() {
-  local behind=$1 base=$2 head=$3
+  local behind=$1 base=$2 head=$3 line
   [ "$ALLOW_STALE_BASE" = false ] || return 0
   case "$behind" in
     0) return 0 ;;
     unreadable)
-      printf '  - could not determine whether head %s contains the current tip of base branch %s; merge or rebase the base branch into the pull request, re-validate, then retry (an attended --allow-stale-base waives this)\n' "$head" "$base"
+      printf -v line '  - could not determine whether head %s contains the current tip of base branch %s; merge or rebase the base branch into the pull request, re-validate, then retry (an attended --allow-stale-base waives this)\n' "$head" "$base"
+      refusals="$refusals$line"
       ;;
     *)
-      printf '  - head %s is %s commit(s) behind base branch %s, so its validation did not include the current base; merge or rebase the base branch into the pull request, re-validate, then retry (an attended --allow-stale-base waives this)\n' "$head" "$behind" "$base"
+      printf -v line '  - head %s is %s commit(s) behind base branch %s, so its validation did not include the current base; merge or rebase the base branch into the pull request, re-validate, then retry (an attended --allow-stale-base waives this)\n' "$head" "$behind" "$base"
+      refusals="$refusals$line"
       ;;
   esac
 }
@@ -718,7 +720,7 @@ FIELDS
 
   # diverged_commits_count is GitLab's own count of target-branch commits the
   # source branch lacks, so a nonzero or unreadable value is a stale base.
-  refusals="$refusals$(stale_base_refusal "$diverged" "the target branch" "$live_head")"
+  stale_base_refusal "$diverged" "the target branch" "$live_head"
 
   if [ -n "$refusals" ]; then
     printf 'error: refusing to merge %s\n' "$URL" >&2
@@ -867,7 +869,7 @@ FIELDS
   else
     behind=unreadable
   fi
-  refusals="$refusals$(stale_base_refusal "$behind" "${base_ref:-the base branch}" "$live_head")"
+  stale_base_refusal "$behind" "${base_ref:-the base branch}" "$live_head"
 
   if [ -n "$refusals" ]; then
     printf 'error: refusing to merge %s\n' "$URL" >&2
@@ -1224,7 +1226,7 @@ EOF
   else
     behind=unreadable
   fi
-  refusals="$refusals$(stale_base_refusal "$behind" "$base" "$live_head")"
+  stale_base_refusal "$behind" "$base" "$live_head"
 
   if [ -n "$mergeable_refusal" ]; then
     if [ -z "$refusals" ] && [ "$mergeable" = UNKNOWN ]; then
