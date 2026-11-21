@@ -255,6 +255,21 @@ case "${1:-} ${2:-}" in
     # The required-check reads: the branch itself, and its rules read without
     # the merge-queue filter the queue reader below applies.
     case " $* " in
+      *" repos/"*"/compare/"*)
+        # The stale-base read: how far the head is behind the base branch. The
+        # requested head must be the one the live view reported.
+        case "$*" in
+          *"...$(cat "$FM_TEST_GH_HEAD")"*) ;;
+          *) exit 1 ;;
+        esac
+        [ ! -f "${FM_TEST_GH_COMPARE_FAIL:-}" ] || exit 1
+        if [ -f "${FM_TEST_GH_COMPARE:-}" ]; then
+          cat "$FM_TEST_GH_COMPARE"
+        else
+          printf '{"status":"ahead","behind_by":0}\n'
+        fi
+        exit 0
+        ;;
       *" repos/"*"/commits/"*"/check-runs"*)
         case "$*" in
           *"/commits/$(cat "$FM_TEST_GH_HEAD")/check-runs"*) ;;
@@ -384,7 +399,7 @@ write_mr_json() {
   local file=$1 kv key value
   local state=opened detail=mergeable conflicts=false discussions=true
   local head=$MR_HEAD pipeline_sha=$MR_HEAD pipeline_status=success pipeline=present
-  local merge_when_pipeline_succeeds=false merge_after=null
+  local merge_when_pipeline_succeeds=false merge_after=null diverged=0
   shift
   for kv in "$@"; do
     key=${kv%%=*}
@@ -400,6 +415,7 @@ write_mr_json() {
       pipeline) pipeline=$value ;;
       merge_when_pipeline_succeeds) merge_when_pipeline_succeeds=$value ;;
       merge_after) merge_after=$value ;;
+      diverged) diverged=$value ;;
       *) fail "write_mr_json: unknown field '$key'" ;;
     esac
   done
@@ -410,8 +426,8 @@ write_mr_json() {
     "$state" "$detail" "$conflicts" > "$file"
   printf '"blocking_discussions_resolved":%s,"sha":"%s","head_pipeline":%s,' \
     "$discussions" "$head" "$pipeline" >> "$file"
-  printf '"merge_when_pipeline_succeeds":%s,"merge_after":%s}\n' \
-    "$merge_when_pipeline_succeeds" "$merge_after" >> "$file"
+  printf '"merge_when_pipeline_succeeds":%s,"merge_after":%s,"diverged_commits_count":%s}\n' \
+    "$merge_when_pipeline_succeeds" "$merge_after" "$diverged" >> "$file"
 }
 
 # tea mock recording every invocation, so a test can prove the login and
@@ -484,6 +500,14 @@ case "$endpoint" in
       printf '{"default_merge_style":"merge"}\n'
     fi
     ;;
+  */compare/*)
+    [ ! -e "$log_dir/tea-compare-fails" ] || exit 1
+    if [ -e "$log_dir/tea-compare.json" ]; then
+      cat "$log_dir/tea-compare.json"
+    else
+      printf '{"total_commits":0,"commits":[]}\n'
+    fi
+    ;;
   */merge)
     if [ -e "$log_dir/tea-merge-fails" ]; then
       printf '{"message":"merge failed"}\n'
@@ -538,7 +562,7 @@ write_forgejo_pr_json() {
       *) fail "write_forgejo_pr_json: unknown field '$key'" ;;
     esac
   done
-  printf '{"state":"%s","mergeable":%s,"merged":%s,"draft":%s,"head":{"sha":"%s"}}\n' \
+  printf '{"state":"%s","mergeable":%s,"merged":%s,"draft":%s,"head":{"sha":"%s"},"base":{"ref":"main"}}\n' \
     "$state" "$mergeable" "$merged" "$draft" "$head" > "$file"
 }
 
@@ -677,6 +701,8 @@ run_pr_merge() {
   FM_TEST_GH_RULES_FAIL="$case_dir/github-rules-fail" \
   FM_TEST_GH_RULES_FAIL_BODY="$case_dir/github-rules-fail-body" \
   FM_TEST_GH_BRANCH="$case_dir/github-branch.json" \
+  FM_TEST_GH_COMPARE="$case_dir/github-compare.json" \
+  FM_TEST_GH_COMPARE_FAIL="$case_dir/github-compare-fail" \
   FM_TEST_GH_BRANCH_FAIL="$case_dir/github-branch-fail" \
   FM_TEST_GH_REQUIRED_RULES="$case_dir/github-required-rules.json" \
   FM_TEST_GH_REQUIRED_RULES_FAIL="$case_dir/github-required-rules-fail" \
@@ -4584,6 +4610,162 @@ test_allow_no_pipeline_is_attended_only_and_gitlab_only() {
   pass "fm-pr-merge --allow-no-pipeline is attended-only, takes no value, and applies only to GitLab"
 }
 
+# A head that lacks the base branch tip was validated against an older base, so
+# two such pull requests can each pass alone and still break the base together.
+# The refusal names the remedy, an up-to-date head merges, and the attended
+# override waives only this condition on every forge.
+test_github_stale_base_refuses_and_override_waives() {
+  local case_dir head
+  head=b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7
+
+  case_dir=$(make_case github-stale-base)
+  add_gh_mocks "$case_dir" "$head"
+  printf '{"status":"diverged","ahead_by":2,"behind_by":3}\n' > "$case_dir/github-compare.json"
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/120 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "github-stale-base: a head behind the base must refuse"
+  assert_grep '3 commit(s) behind base branch main' "$case_dir/stderr" \
+    "github-stale-base: the refusal did not state how far behind the head is"
+  assert_grep 'merge or rebase the base branch into the pull request, re-validate, then retry' "$case_dir/stderr" \
+    "github-stale-base: the refusal did not name the remedy"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "github-stale-base: gh pr merge ran with a stale base"
+  assert_grep "api repos/example/repo/compare/main...$head" "$case_dir/gh.log" \
+    "github-stale-base: the compare was not bound to the verified head"
+
+  case_dir=$(make_case github-stale-base-current)
+  add_gh_mocks "$case_dir" "$head"
+  printf '{"status":"ahead","ahead_by":2,"behind_by":0}\n' > "$case_dir/github-compare.json"
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/121 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "github-stale-base-current: an up-to-date head should merge: $(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 121 example/repo --squash
+
+  case_dir=$(make_case github-stale-base-override)
+  add_gh_mocks "$case_dir" "$head"
+  printf '{"status":"behind","ahead_by":0,"behind_by":1}\n' > "$case_dir/github-compare.json"
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/122 --allow-stale-base \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "github-stale-base-override: the override should merge: $(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 122 example/repo --squash
+
+  case_dir=$(make_case github-stale-base-unreadable)
+  add_gh_mocks "$case_dir" "$head"
+  : > "$case_dir/github-compare-fail"
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/123 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "github-stale-base-unreadable: an unanswerable compare must refuse"
+  assert_grep 'could not determine whether head' "$case_dir/stderr" \
+    "github-stale-base-unreadable: the refusal did not say the compare was unreadable"
+
+  case_dir=$(make_case github-stale-base-away)
+  add_gh_mocks "$case_dir" "$head"
+  write_away_record "$case_dir"
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/124 --allow-stale-base \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "github-stale-base-away: the override must be refused while away"
+  assert_grep 'allow-stale-base is attended-only' "$case_dir/stderr" \
+    "github-stale-base-away: the refusal did not name attended-only"
+  pass "fm-pr-merge refuses a head behind the base branch on GitHub and honours the attended override"
+}
+
+test_gitlab_stale_base_refuses_and_override_waives() {
+  local case_dir rc
+
+  case_dir=$(make_gitlab_case gitlab-stale-base diverged=2)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "gitlab-stale-base: a diverged merge request must refuse"
+  assert_grep '2 commit(s) behind' "$case_dir/stderr" "gitlab-stale-base: the refusal did not state the divergence"
+  assert_grep 'merge or rebase the base branch into the pull request, re-validate, then retry' "$case_dir/stderr" \
+    "gitlab-stale-base: the refusal did not name the remedy"
+  assert_no_grep 'mr merge' "$case_dir/glab.log" "gitlab-stale-base: glab merged a stale base"
+
+  case_dir=$(make_gitlab_case gitlab-stale-base-current diverged=0)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "gitlab-stale-base-current: an up-to-date head should merge: $(cat "$case_dir/stderr")"
+
+  case_dir=$(make_gitlab_case gitlab-stale-base-override diverged=2)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --allow-stale-base > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "gitlab-stale-base-override: the override should merge: $(cat "$case_dir/stderr")"
+
+  case_dir=$(make_gitlab_case gitlab-stale-base-unreadable diverged=null)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "gitlab-stale-base-unreadable: an unreadable divergence must refuse"
+  assert_grep 'could not determine whether head' "$case_dir/stderr" \
+    "gitlab-stale-base-unreadable: the refusal did not say the count was unreadable"
+  pass "fm-pr-merge refuses a head behind the target branch on GitLab and honours the attended override"
+}
+
+test_forgejo_stale_base_refuses_and_override_waives() {
+  local case_dir rc
+
+  case_dir=$(make_forgejo_case forgejo-stale-base)
+  printf '{"total_commits":4,"commits":[]}\n' > "$case_dir/tea-compare.json"
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$FJ_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "forgejo-stale-base: a head behind the base must refuse"
+  assert_grep '4 commit(s) behind base branch main' "$case_dir/stderr" \
+    "forgejo-stale-base: the refusal did not state how far behind the head is"
+  assert_grep 'merge or rebase the base branch into the pull request, re-validate, then retry' "$case_dir/stderr" \
+    "forgejo-stale-base: the refusal did not name the remedy"
+  [ ! -e "$case_dir/tea-merge-called" ] || fail "forgejo-stale-base: tea merged a stale base"
+
+  case_dir=$(make_forgejo_case forgejo-stale-base-current)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$FJ_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "forgejo-stale-base-current: an up-to-date head should merge: $(cat "$case_dir/stderr")"
+
+  case_dir=$(make_forgejo_case forgejo-stale-base-override)
+  printf '{"total_commits":4,"commits":[]}\n' > "$case_dir/tea-compare.json"
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$FJ_URL" --allow-stale-base > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "forgejo-stale-base-override: the override should merge: $(cat "$case_dir/stderr")"
+
+  case_dir=$(make_forgejo_case forgejo-stale-base-unreadable)
+  : > "$case_dir/tea-compare-fails"
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$FJ_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "forgejo-stale-base-unreadable: an unanswerable compare must refuse"
+  assert_grep 'could not determine whether head' "$case_dir/stderr" \
+    "forgejo-stale-base-unreadable: the refusal did not say the compare was unreadable"
+  pass "fm-pr-merge refuses a head behind the base branch on Forgejo and honours the attended override"
+}
+
 test_gitlab_head_override_args_refuse_before_recording
 test_secondmate_merge_reports_upward_once
 test_secondmate_merge_reports_on_the_local_route
@@ -4642,3 +4824,6 @@ test_allow_red_refused_on_forgejo
 test_allow_missing_refused_on_forgejo
 test_allow_no_pipeline_merges_only_a_null_head_pipeline
 test_allow_no_pipeline_is_attended_only_and_gitlab_only
+test_github_stale_base_refuses_and_override_waives
+test_gitlab_stale_base_refuses_and_override_waives
+test_forgejo_stale_base_refuses_and_override_waives
