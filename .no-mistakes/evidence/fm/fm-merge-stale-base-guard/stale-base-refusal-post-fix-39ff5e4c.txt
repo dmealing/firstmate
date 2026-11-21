@@ -1,0 +1,25 @@
+=== case 1: GitHub, head 3 behind base, mergeable CONFLICTING (new)
+rc=1
+error: refusing to merge https://github.com/example/repo/pull/120$
+  - head b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7 is 3 commit(s) behind base branch main, so its validation did not include the current base; merge or rebase the base branch into the pull request, re-validate, then retry (an attended --allow-stale-base waives this)$
+  - mergeable is "CONFLICTING", not MERGEABLE$
+gh merge calls: 0
+=== case 2: GitHub, head 3 behind base, mergeable MERGEABLE (new)
+rc=1
+error: refusing to merge https://github.com/example/repo/pull/121$
+  - head b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7 is 3 commit(s) behind base branch main, so its validation did not include the current base; merge or rebase the base branch into the pull request, re-validate, then retry (an attended --allow-stale-base waives this)$
+gh merge calls: 0
+=== case 3: GitLab, MR diverged 2 and conflicts (new)
+rc=1
+error: refusing to merge https://gitlab.example/group/subgroup/project/-/merge_requests/7$
+  - detailed_merge_status is "conflict", not mergeable$
+  - has_conflicts is "true", not false$
+  - head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa is 2 commit(s) behind base branch the target branch, so its validation did not include the current base; merge or rebase the base branch into the pull request, re-validate, then retry (an attended --allow-stale-base waives this)$
+glab merge calls: 0
+=== case 4: Forgejo, head 4 behind base, mergeable=false (new)
+rc=1
+error: refusing to merge https://forgejo.example/fixture/fixture-repo/pulls/9$
+  - mergeable is "false", not true$
+  - head cccccccccccccccccccccccccccccccccccccccc is 4 commit(s) behind base branch main, so its validation did not include the current base; merge or rebase the base branch into the pull request, re-validate, then retry (an attended --allow-stale-base waives this)$
+tea merge called: no
+exit=0
