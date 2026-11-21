@@ -594,9 +594,10 @@ if [ "$PROVIDER" = gitlab ] || [ "$PROVIDER" = forgejo ]; then
   RECORDED_HEAD=$(grep '^pr_head=' "$META" | tail -1 | cut -d= -f2- || true)
 fi
 
-# One refusal line for a stale validation base, or nothing. Args: behind, where
-# behind is the number of base-branch commits the head lacks, or "unreadable"
-# when the forge could not answer. The remedy is named in every refusal.
+# Appends one newline-terminated refusal line for a stale validation base to the
+# caller's local refusals, or nothing. Args: behind, base, head. behind is the
+# number of base-branch commits the head lacks, or "unreadable" when the forge
+# could not answer. The remedy is named in every refusal.
 stale_base_refusal() {
   local behind=$1 base=$2 head=$3 line
   [ "$ALLOW_STALE_BASE" = false ] || return 0
