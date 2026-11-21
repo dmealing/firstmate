@@ -186,6 +186,9 @@ case " $* " in
   *" api --paginate repos/"*"/rules/branches/"*)
     printf '%s\n' '[]'
     ;;
+  *" api repos/"*"/compare/"*)
+    printf '%s\n' '{"status":"identical","ahead_by":0,"behind_by":0}'
+    ;;
   *" api repos/"*"/branches/"*)
     printf '%s\n' '{"name":"main","protected":false}'
     ;;
