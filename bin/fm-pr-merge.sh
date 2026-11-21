@@ -28,8 +28,9 @@
 # is green at the exact current head commit, where github_checks_not_green below
 # owns what makes a check green and judges each one by its current run, and
 # every unwaived check the forge requires for the base branch has reported at
-# that head. When mergeable is the only failing condition and reads UNKNOWN,
-# meaning GitHub has not finished recomputing it, the caller re-reads and
+# that head, and the head contains the current tip of the base branch. When
+# mergeable is the only failing condition and reads UNKNOWN, meaning GitHub has
+# not finished recomputing it, the caller re-reads and
 # re-checks every condition after a short bounded wait instead of refusing;
 # once that bound is spent it reports mergeability still pending rather than
 # unmergeable, with the same nonzero exit as any other refusal.
