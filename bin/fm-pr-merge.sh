@@ -624,7 +624,7 @@ gitlab_verify_mergeable() {
   local json fields line pipeline_waived
   local total=0 named=0 refusals=''
   local state='' detail='' conflicts='' discussions=''
-  local live_head='' pipeline_sha='' pipeline_status='' pipeline_absent='' async_configured='' diverged=''
+  local live_head='' pipeline_sha='' pipeline_status='' pipeline_absent='' async_configured='' diverged='' target=''
 
   # GITLAB_HOST is set to the same host the project URL already carries, so the
   # instance is taken from the parsed URL by both signals and never from the
@@ -649,7 +649,8 @@ gitlab_verify_mergeable() {
         "pipeline_status=" + ((.head_pipeline.status // "") | tostring),
         "pipeline_absent=" + (if has("head_pipeline") and .head_pipeline == null then "true" else "false" end),
         "async_configured=" + (if .merge_when_pipeline_succeeds == true or (.merge_after != null) then "true" else "false" end),
-        "diverged=" + (if (.diverged_commits_count | type) == "number" then (.diverged_commits_count | tostring) else "unreadable" end)
+        "diverged=" + (if (.diverged_commits_count | type) == "number" then (.diverged_commits_count | tostring) else "unreadable" end),
+        "target=" + ((.target_branch // "") | tostring)
       else
         error("merge request payload is not an object")
       end' 2>/dev/null); then
@@ -669,6 +670,7 @@ gitlab_verify_mergeable() {
       pipeline_absent=*) pipeline_absent=${line#pipeline_absent=} ;;
       async_configured=*) async_configured=${line#async_configured=} ;;
       diverged=*) diverged=${line#diverged=} ;;
+      target=*) target=${line#target=} ;;
       *) continue ;;
     esac
     named=$((named + 1))
@@ -678,7 +680,7 @@ FIELDS
   # Every field named exactly once and no unnamed line: a value carrying a
   # newline would split into a line no name matches, so it is refused here
   # rather than silently truncated into a value a check could accept.
-  if [ "$named" -ne 10 ] || [ "$total" -ne 10 ]; then
+  if [ "$named" -ne 11 ] || [ "$total" -ne 11 ]; then
     echo "error: could not read the GitLab merge request state before merging" >&2
     return 1
   fi
@@ -722,7 +724,7 @@ FIELDS
 
   # diverged_commits_count is GitLab's own count of target-branch commits the
   # source branch lacks, so a nonzero or unreadable value is a stale base.
-  stale_base_refusal "$diverged" "the target branch" "$live_head"
+  stale_base_refusal "$diverged" "${target:-the target branch}" "$live_head"
 
   if [ -n "$refusals" ]; then
     printf 'error: refusing to merge %s\n' "$URL" >&2

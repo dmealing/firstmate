@@ -399,7 +399,7 @@ write_mr_json() {
   local file=$1 kv key value
   local state=opened detail=mergeable conflicts=false discussions=true
   local head=$MR_HEAD pipeline_sha=$MR_HEAD pipeline_status=success pipeline=present
-  local merge_when_pipeline_succeeds=false merge_after=null diverged=0
+  local merge_when_pipeline_succeeds=false merge_after=null diverged=0 target=main
   shift
   for kv in "$@"; do
     key=${kv%%=*}
@@ -416,6 +416,7 @@ write_mr_json() {
       merge_when_pipeline_succeeds) merge_when_pipeline_succeeds=$value ;;
       merge_after) merge_after=$value ;;
       diverged) diverged=$value ;;
+      target) target=$value ;;
       *) fail "write_mr_json: unknown field '$key'" ;;
     esac
   done
@@ -426,8 +427,8 @@ write_mr_json() {
     "$state" "$detail" "$conflicts" > "$file"
   printf '"blocking_discussions_resolved":%s,"sha":"%s","head_pipeline":%s,' \
     "$discussions" "$head" "$pipeline" >> "$file"
-  printf '"merge_when_pipeline_succeeds":%s,"merge_after":%s,"diverged_commits_count":%s}\n' \
-    "$merge_when_pipeline_succeeds" "$merge_after" "$diverged" >> "$file"
+  printf '"merge_when_pipeline_succeeds":%s,"merge_after":%s,"diverged_commits_count":%s,"target_branch":"%s"}\n' \
+    "$merge_when_pipeline_succeeds" "$merge_after" "$diverged" "$target" >> "$file"
 }
 
 # tea mock recording every invocation, so a test can prove the login and
@@ -4687,13 +4688,14 @@ test_github_stale_base_refuses_and_override_waives() {
 test_gitlab_stale_base_refuses_and_override_waives() {
   local case_dir rc
 
-  case_dir=$(make_gitlab_case gitlab-stale-base diverged=2)
+  case_dir=$(make_gitlab_case gitlab-stale-base diverged=2 target=release-1)
   set +e
   run_pr_merge "$case_dir" task-x1 "$MR_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
   expect_code 1 "$rc" "gitlab-stale-base: a diverged merge request must refuse"
   assert_grep '2 commit(s) behind' "$case_dir/stderr" "gitlab-stale-base: the refusal did not state the divergence"
+  assert_grep 'behind base branch release-1' "$case_dir/stderr" "gitlab-stale-base: the refusal did not name the target branch"
   assert_grep 'merge or rebase the base branch into the pull request, re-validate, then retry' "$case_dir/stderr" \
     "gitlab-stale-base: the refusal did not name the remedy"
   assert_no_grep 'mr merge' "$case_dir/glab.log" "gitlab-stale-base: glab merged a stale base"
