@@ -1,0 +1,92 @@
+FM_TEST_BEGIN 2026-11-22T17:39:15Z tests/fm-ensure-agents-md.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - fm-ensure-agents-md.sh: created AGENTS.md includes self-governance section
+ok - fm-ensure-agents-md.sh: fresh setup writes a real @AGENTS.md pointer
+ok - fm-ensure-agents-md.sh: promoted CLAUDE.md includes self-governance section
+ok - fm-ensure-agents-md.sh: newline-less promotion keeps a blank separator line
+ok - fm-ensure-agents-md.sh: existing symlinked AGENTS.md gains the section idempotently
+ok - fm-ensure-agents-md.sh: correct symlink migrates to pointer without clobbering AGENTS.md
+ok - fm-ensure-agents-md.sh: existing AGENTS.md without CLAUDE.md gains section and pointer
+ok - fm-ensure-agents-md.sh: AGENTS.md that already has the section stays unchanged
+ok - fm-ensure-agents-md.sh: CRLF AGENTS.md with the section stays unchanged
+ok - fm-ensure-agents-md.sh: CRLF injection preserves line endings idempotently
+ok - fm-ensure-agents-md.sh: prose and marker examples do not replace a first-line mark
+ok - fm-ensure-agents-md.sh: marked project guidance is preserved across ensure paths and line endings
+ok - fm-ensure-agents-md.sh: canonical real CLAUDE.md pointer is not a conflict
+ok - fm-ensure-agents-md.sh: refuses distinct real AGENTS.md and CLAUDE.md
+ok - fm-ensure-agents-md.sh: refuses AGENTS.md when it is a symlink
+ok - fm-ensure-agents-md.sh: refuses a CLAUDE.md symlink that does not point to AGENTS.md
+ok - fm-ensure-agents-md.sh: refuses a non-regular CLAUDE.md
+ok - fm-ensure-agents-md.sh: refuses a case-variant lowercase agents.md (issue #389)
+FM_TEST_END 2026-11-22T17:39:16Z tests/fm-ensure-agents-md.test.sh exit=0 duration_ms=660 gate_skip=false
+FM_TEST_BEGIN 2026-11-22T17:39:16Z tests/fm-task-delivery.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_BEGIN 2026-11-22T17:39:16Z tests/fm-documentation-audiences.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_BEGIN 2026-11-22T17:39:16Z tests/fm-ask-user-authority.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - primary workers and secondmates receive the authority rule through generated instructions
+FM_TEST_END 2026-11-22T17:39:16Z tests/fm-ask-user-authority.test.sh exit=0 duration_ms=455 gate_skip=false
+ok - documentation inventory classifies every maintained prose surface exactly once
+ok - classification, setup routing, and maintained-prose scope fail safely
+ok - required documentation owner pointers cannot silently disappear
+ok - local links resolve while dates, versions, commands, and incident prose remain semantically reviewed
+FM_TEST_END 2026-11-22T17:39:17Z tests/fm-documentation-audiences.test.sh exit=0 duration_ms=1280 gate_skip=false
+ok - fm-spawn/fm-promote: authorized intent preserves exact words and refuses operator-address lines
+ok - fm-spawn: every legacy worker receives scoped role instructions without changing project or primary instructions
+ok - fm-spawn: a ship spawn requires a valid explicit mode and yolo before anything is created
+ok - fm-spawn: scout and secondmate spawns refuse ship delivery flags
+ok - fm-spawn: the brief's recorded mode and the spawn's explicit mode must agree
+ok - fm-spawn: a rigor downgrade against the registered posture is announced, never blocked
+ok - fm-spawn: a scout spawn resolves no delivery posture from the registry
+ok - fm-promote: promotion requires the delivery contract and records it exactly once
+ok - fm-promote: an opted-in home sends a publishing promotion on a project with origin back to origin's default branch
+ok - fm-promote: a symlinked task record is refused and its target is left untouched
+ok - fm-promote: a promoted worker receives the same mode-specific delivery contract a briefed one does
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ok - fm-promote: a selected branch prefix reaches both worker instructions and durable task state
+Switched to a new branch '$(touch${IFS}/tmp/fm-test-run.2sxIL9/w2/tmp/fm-task-delivery.Kn3Tdt/promote-branch-shell-safe-marker)/promote-branch-safe-e3'
+ok - fm-promote: ref-format-valid shell metacharacters stay literal in promotion branch commands
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ok - fm-merge-local: a registry change cannot redirect an in-flight local-only task
+ok - fm-project-mode: the registry lookup matches a whole multi-word name, not just its first token
+ok - fm-project-mode: the conditional policy is accepted, mapped for mechanical callers, and readable raw
+ok - fm-project-mode: the forge binds from its own token and is reported only through --forge
+ok - fm-project-mode: only a malformed forge binding refuses; every other token keeps its old tolerance
+ok - forge=gerrit: yolo is refused with its reason, never silently dropped
+ok - forge=external: promoting a scout is refused because only a ship spawn installs the push guard
+ok - forge=gerrit: no-mistakes runs with its forge steps skipped, recovers its fixes, then publishes one change
+ok - forge=gerrit: direct-PR publishes one squashed change and a stack is refused with its reason
+ok - fm-spawn: a registered forge must reach the worker's brief
+ok - fm-spawn: the brief must carry the spawn's selected ship branch, and the selection is validated before anything is created
+ok - fm-spawn: a ship branch that deviates from the registered prefix is announced, never blocked
+ok - fm-spawn: a registry forge token the parser refuses stops the launch, reason included
+ok - fm-promote: a promoted worker receives the project's registered forge contract with no flag to remember
+ok - forge=forgejo: spawn agreement and promotion carry the binding, name tea, and keep yolo
+ok - fm-brief: pr=manual records its contract suffix, skips pr and ci, and hands the PR text to the worker
+ok - fm-brief: pr=manual is refused on direct-PR, local-only, a bound forge, an unknown value, and a scout
+ok - fm-spawn: the registered pr=manual binding must agree with the brief's contract line
+ok - fm-promote: a promoted no-mistakes worker receives the registered pr=manual contract 
+ok - fm-spawn/fm-promote: leftover Task placeholders are refused until both subsections are filled
+ok - fm-project-mode: --branch-prefix resolves order-independently and defaults to the legacy fm/ prefix
+# all fm-task-delivery tests passed
+FM_TEST_END 2026-11-22T17:40:04Z tests/fm-task-delivery.test.sh exit=0 duration_ms=48912 gate_skip=false
+FM_TEST_BEGIN 2026-11-22T17:40:04Z tests/fm-startup-growth-check.test.sh family=unclassified expected_gate_skip=none
+ok - fm-startup-growth-check
+FM_TEST_END 2026-11-22T17:40:07Z tests/fm-startup-growth-check.test.sh exit=0 duration_ms=2964 gate_skip=false
+FM_TEST_SUMMARY total=5 failed=0 skipped_gate=0 duration_ms=52661
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=4 duration_ms=51307 failed=0
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=2964 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-task-delivery.test.sh duration_ms=48912
+FM_TEST_SLOWEST rank=2 script=tests/fm-startup-growth-check.test.sh duration_ms=2964
+FM_TEST_SLOWEST rank=3 script=tests/fm-documentation-audiences.test.sh duration_ms=1280
+FM_TEST_SLOWEST rank=4 script=tests/fm-ensure-agents-md.test.sh duration_ms=660
+FM_TEST_SLOWEST rank=5 script=tests/fm-ask-user-authority.test.sh duration_ms=455

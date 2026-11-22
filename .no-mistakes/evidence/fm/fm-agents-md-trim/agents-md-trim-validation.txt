@@ -1,0 +1,30 @@
+AGENTS.md trim validation (branch fm/fm-agents-md-trim, target de0cdefe, base 427056c4)
+
+1. Byte counts
+   AGENTS.md before (427056c4): 51560 bytes
+   AGENTS.md after  (de0cdefe): 40044 bytes  (-11516 bytes, -22.3%)
+   .agents/skills/quota-array-dispatch/SKILL.md: owner note reworded, rules moved in full
+
+2. Section numbering (headings 1-14 and "Captain instruction precedence", "Maintaining this file") preserved.
+
+3. Owner pointers: every repo-relative path in the trimmed AGENTS.md exists, except runtime-home paths
+   (config/*, data/*) and a placeholder pattern, which are FM_HOME-relative and expected to be absent from the repo.
+   Markdown links docs/agent-control.md, docs/configuration.md, docs/secondmate-parent-channel.md resolve.
+
+4. Guards and tests (real scripts on the real repo or disposable fixtures)
+   bin/fm-doc-audience-check.sh                       -> ok surfaces=142 local_links=1247, exit 0
+   bin/fm-test-run.sh --check-coverage                -> FM_TEST_COVERAGE ok, exit 0
+   bin/fm-test-run.sh tests/fm-documentation-audiences.test.sh tests/fm-startup-growth-check.test.sh \
+     tests/fm-startup-memory-budget.test.sh tests/fm-ensure-agents-md.test.sh tests/fm-supervision-instructions.test.sh
+                                                      -> total=5 failed=0 skipped_gate=0
+   bin/fm-test-run.sh tests/fm-brief.test.sh tests/fm-session-start.test.sh -> total=2 failed=0
+
+5. Live startup growth check against a disposable home (FM_ROOT_OVERRIDE and FM_HOME under DEV_SCRATCH, removed after)
+   day 1 baseline with 51560-byte AGENTS.md         -> silent, exit 0
+   day 2 trimmed 40044-byte AGENTS.md               -> silent, exit 0, record: AGENTS.md tracked present 40044
+   day 3 regrown by +3000 bytes (43044 bytes)       -> "startup-growth: tracked startup surface growth AGENTS.md +3000 bytes (total 43044 bytes)"
+
+Not run:
+   tests/fm-quota-array-dispatch-live-e2e.test.sh   opt-in (FM_QUOTA_ARRAY_DISPATCH_LIVE_E2E); drives a real pi model call. Not approved, not run.
+   Lab claude primary loading the trimmed AGENTS.md  needs captain opt-in for the normal Claude login; not run.
+   bin/fm-test-run.sh --all                          runbook forbids; CI owns broad regression.

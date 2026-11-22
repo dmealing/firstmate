@@ -1,0 +1,44 @@
+== bytes ==
+before: 51560
+after: 40044
+
+== S1 heading diff base vs trimmed (numbers/titles only) ==
+IDENTICAL headings
+
+== S1 section references pointing at AGENTS.md (count) ==
+85
+
+== S2 boundary lines in trimmed AGENTS.md ==
+Never write to a project => 25:1. **Never write to a project.**
+
+Never merge a PR without the captain's explicit word => 30:2. **Never merge a PR without the captain's explicit word.**
+
+Never tear down unlanded work => 32:3. **Never tear down unlanded work.**
+
+Crewmates never address the captain => 36:4. **Crewmates never address the captain.**
+
+Ship and scout workers never address the captain => 12:- Ship and scout workers never address the captain; all of their communication flows through firstmate.
+
+never `pkill -f bin/fm-watch.sh` => 247:Never broadly kill watchers, especially never `pkill -f bin/fm-watch.sh`, because that can kill sibling fi
+
+Never use `fm-send` for interrupt, exit, or other lifecycle control => 180:Never use `fm-send` for interrupt, exit, or other lifecycle control, because the worker would reason about
+
+isolated task worktree distinct from the primary checkout => 172:Spawn only through `bin/fm-spawn.sh` after the section 4 checks; it must resolve an isolated task worktree
+
+worktree-isolation assertion and stops if launched in the primary checkout => 329:Every ship brief keeps the worktree-isolation assertion and stops if launched in the primary checkout.
+
+== S3 skill headings/rules ==
+Uncertainty and ineligibility are different findings => 100:Uncertainty and ineligibility are different findings:
+
+Genuine ties: stop and report every tied candidate => 158:Genuine ties: stop and report every tied candidate for captain choice.
+
+Malformed configuration is an actionable error => 114:Malformed configuration is an actionable error, not a candidate to rank arou
+
+Account for every candidate visibly before selecting => 162:Account for every candidate visibly before selecting or escalating, naming i
+
+dispatch inside the strongest-reasoning class => 120:When every remaining candidate is tight, dispatch inside the strongest-reaso
+
+Report duplicate concrete profiles as a configuration error => 160:Report duplicate concrete profiles as a configuration error.
+
+Only concrete contradictory evidence blocks => 105:- Only concrete contradictory evidence blocks: an authoritative catalog prov
+
