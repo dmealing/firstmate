@@ -130,6 +130,7 @@ case "${1:-} ${2:-}" in
       *) printf '%s\n' '[]' ;;
     esac
     ;;
+  "api repos/"*"/compare/"*) printf '%s\n' '{"status":"identical","ahead_by":0,"behind_by":0}' ;;
   "api repos/"*) printf '%s\n' '{"name":"main","protected":false}' ;;
 esac
 SH

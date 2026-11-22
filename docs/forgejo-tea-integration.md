@@ -176,7 +176,8 @@ This was the single most consequential finding of this verification pass: a naiv
 
 ## Pre-merge conditions
 
-Read live from `tea api ... /repos/{owner}/{repo}/pulls/{n}` (`state`, `mergeable`, `draft`, `head.sha`) and `tea api ... /repos/{owner}/{repo}/commits/{sha}/status?limit=50&page={p}` (the combined commit status).
+Read live from `tea api ... /repos/{owner}/{repo}/pulls/{n}` (`state`, `mergeable`, `draft`, `head.sha`, `base.ref`), from `tea api ... /repos/{owner}/{repo}/commits/{sha}/status?limit=50&page={p}` (the combined commit status), and from `tea api ... /repos/{owner}/{repo}/compare/{head}...{base}` (`total_commits`, the base-branch commits the head lacks).
+An unreadable compare refuses the merge as a stale base.
 The combined-status endpoint computes its `state` from one page of the latest status per context, so every page is read until an empty one and the head is green only when each non-empty page reads `success`.
 A positive `draft` reading refuses; an instance too old to report the field still refuses a work-in-progress merge server side.
 `tea api` passes a query string through unchanged, because it builds the request URL by plain concatenation onto the login's `/api/v1` base.
@@ -204,7 +205,7 @@ error: refusing to merge ...
   - the combined commit status is "none", not success
 ```
 
-**Not verified here:** the shape of a populated (non-empty) combined-status response from a real Forgejo Actions run, its pagination, and the pull request `draft` field.
+**Not verified here:** the shape of a populated (non-empty) combined-status response from a real Forgejo Actions run, its pagination, the pull request `draft` field, and the compare endpoint's `total_commits` for a head that lacks base-branch commits.
 Standing up a Forgejo Actions runner was out of scope for this pass; the merge gate requires the combined status's `state` field to read exactly `success`, matching GitHub's and GitLab's own state enums, and refuses on anything else including an unrecognized value - the same fail-safe-refuse posture as every other condition here.
 
 ## Registered `tea login`s used

@@ -14,7 +14,8 @@
 #
 # Usage:
 #   fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check>]
-#     [--allow-missing <check>] [--allow-no-pipeline] [-- <forge merge flags>]
+#     [--allow-missing <check>] [--allow-no-pipeline] [--allow-stale-base]
+#     [-- <forge merge flags>]
 #   fm-pr-merge.sh -h | --help
 #
 # Merge method on GitHub defaults to --squash when the caller passes none of
@@ -27,8 +28,9 @@
 # is green at the exact current head commit, where github_checks_not_green below
 # owns what makes a check green and judges each one by its current run, and
 # every unwaived check the forge requires for the base branch has reported at
-# that head. When mergeable is the only failing condition and reads UNKNOWN,
-# meaning GitHub has not finished recomputing it, the caller re-reads and
+# that head, and the head contains the current tip of the base branch. When
+# mergeable is the only failing condition and reads UNKNOWN, meaning GitHub has
+# not finished recomputing it, the caller re-reads and
 # re-checks every condition after a short bounded wait instead of refusing;
 # once that bound is spent it reports mergeability still pending rather than
 # unmergeable, with the same nonzero exit as any other refusal.
@@ -142,13 +144,25 @@
 # because there is no established translation from a gh/glab-style flag into
 # a Forgejo API field yet.
 #
+# On every forge, a merge is also refused when the verified head does not
+# contain the current tip of the base branch, because green checks at a head
+# validated against an older base say nothing about the combined result: two
+# pull requests that each pass alone can break the base once both land, and the
+# forge sees no textual conflict between them. The remedy is to merge or rebase
+# the base branch into the pull request, re-validate, and retry. The question is
+# answered by the forge's own comparison of the base branch against that exact
+# head (GitHub's compare endpoint, GitLab's diverged_commits_count, Forgejo's
+# compare endpoint), and a forge that cannot answer refuses rather than passing
+# silently. An attended --allow-stale-base waives only this condition, applies
+# on every forge, and is refused while the away-posture record exists.
+#
 # Before either forge merge, the task's existing per-task control lock
 # serializes the captain-hold check through the forge command. A still-held or
 # unreadable row refuses before that command, so a captain approval must be
 # recorded as an `answer --release` before this entrypoint is invoked. While
 # an away record exists (a quiet-mode record is a present captain, so its
-# merges stay attended: bin/fm-afk-contract.sh mode) any green merge may
-# proceed under away authority:
+# merges stay attended: bin/fm-afk-contract.sh mode) any green merge that
+# contains the base-branch tip may proceed under away authority:
 # the record's presence is the whole mechanical fact, and which merge the
 # captain's away words meant is the supervision session's reading
 # (bin/fm-branch-prompt.sh "Postures"). An unreadable record refuses rather
@@ -181,7 +195,7 @@
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
 #
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [--allow-no-pipeline] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [--allow-no-pipeline] [--allow-stale-base] [-- <extra forge merge args>]
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
@@ -260,6 +274,7 @@ fi
 shift 2
 ATTENDED_OVERRIDE=false
 ALLOW_NO_PIPELINE=false
+ALLOW_STALE_BASE=false
 ALLOW_RED=()
 ALLOW_MISSING=()
 while [ "$#" -gt 0 ]; do
@@ -298,6 +313,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --allow-no-pipeline=*)
       echo "error: --allow-no-pipeline takes no value" >&2
+      exit 2
+      ;;
+    --allow-stale-base)
+      ALLOW_STALE_BASE=true
+      shift
+      ;;
+    --allow-stale-base=*)
+      echo "error: --allow-stale-base takes no value" >&2
       exit 2
       ;;
     --) shift; break ;;
@@ -572,6 +595,26 @@ if [ "$PROVIDER" = gitlab ] || [ "$PROVIDER" = forgejo ]; then
   RECORDED_HEAD=$(grep '^pr_head=' "$META" | tail -1 | cut -d= -f2- || true)
 fi
 
+# Appends one newline-terminated refusal line for a stale validation base to the
+# caller's local refusals, or nothing. Args: behind, base, head. behind is the
+# number of base-branch commits the head lacks, or "unreadable" when the forge
+# could not answer. The remedy is named in every refusal.
+stale_base_refusal() {
+  local behind=$1 base=$2 head=$3 line
+  [ "$ALLOW_STALE_BASE" = false ] || return 0
+  case "$behind" in
+    0) return 0 ;;
+    unreadable)
+      printf -v line '  - could not determine whether head %s contains the current tip of base branch %s; merge or rebase the base branch into the pull request, re-validate, then retry (an attended --allow-stale-base waives this)\n' "$head" "$base"
+      refusals="$refusals$line"
+      ;;
+    *)
+      printf -v line '  - head %s is %s commit(s) behind base branch %s, so its validation did not include the current base; merge or rebase the base branch into the pull request, re-validate, then retry (an attended --allow-stale-base waives this)\n' "$head" "$behind" "$base"
+      refusals="$refusals$line"
+      ;;
+  esac
+}
+
 # Pre-merge conditions for a GitLab merge request, read from one live view of
 # the merge request. Sets FM_PR_MERGE_HEAD to the verified head on success and
 # returns non-zero after reporting every condition that failed.
@@ -581,7 +624,7 @@ gitlab_verify_mergeable() {
   local json fields line pipeline_waived
   local total=0 named=0 refusals=''
   local state='' detail='' conflicts='' discussions=''
-  local live_head='' pipeline_sha='' pipeline_status='' pipeline_absent='' async_configured=''
+  local live_head='' pipeline_sha='' pipeline_status='' pipeline_absent='' async_configured='' diverged='' target=''
 
   # GITLAB_HOST is set to the same host the project URL already carries, so the
   # instance is taken from the parsed URL by both signals and never from the
@@ -605,7 +648,9 @@ gitlab_verify_mergeable() {
         "pipeline_sha=" + ((.head_pipeline.sha // "") | tostring),
         "pipeline_status=" + ((.head_pipeline.status // "") | tostring),
         "pipeline_absent=" + (if has("head_pipeline") and .head_pipeline == null then "true" else "false" end),
-        "async_configured=" + (if .merge_when_pipeline_succeeds == true or (.merge_after != null) then "true" else "false" end)
+        "async_configured=" + (if .merge_when_pipeline_succeeds == true or (.merge_after != null) then "true" else "false" end),
+        "diverged=" + (if (.diverged_commits_count | type) == "number" then (.diverged_commits_count | tostring) else "unreadable" end),
+        "target=" + ((.target_branch // "") | tostring)
       else
         error("merge request payload is not an object")
       end' 2>/dev/null); then
@@ -624,6 +669,8 @@ gitlab_verify_mergeable() {
       pipeline_status=*) pipeline_status=${line#pipeline_status=} ;;
       pipeline_absent=*) pipeline_absent=${line#pipeline_absent=} ;;
       async_configured=*) async_configured=${line#async_configured=} ;;
+      diverged=*) diverged=${line#diverged=} ;;
+      target=*) target=${line#target=} ;;
       *) continue ;;
     esac
     named=$((named + 1))
@@ -633,7 +680,7 @@ FIELDS
   # Every field named exactly once and no unnamed line: a value carrying a
   # newline would split into a line no name matches, so it is refused here
   # rather than silently truncated into a value a check could accept.
-  if [ "$named" -ne 9 ] || [ "$total" -ne 9 ]; then
+  if [ "$named" -ne 11 ] || [ "$total" -ne 11 ]; then
     echo "error: could not read the GitLab merge request state before merging" >&2
     return 1
   fi
@@ -675,6 +722,10 @@ FIELDS
 "
   fi
 
+  # diverged_commits_count is GitLab's own count of target-branch commits the
+  # source branch lacks, so a nonzero or unreadable value is a stale base.
+  stale_base_refusal "$diverged" "${target:-the target branch}" "$live_head"
+
   if [ -n "$refusals" ]; then
     printf 'error: refusing to merge %s\n' "$URL" >&2
     printf '%s' "$refusals" >&2
@@ -705,6 +756,7 @@ forgejo_verify_mergeable() {
   local pr_json status_json fields line
   local total=0 named=0 refusals=''
   local state='' mergeable='' draft='' live_head='' ci_state='' page_state='' page_count='' page=1
+  local base_ref='' compare_json='' behind='unreadable'
 
   if ! pr_json=$(tea api --login "$FORGEJO_LOGIN" --repo "$PR_OWNER/$PR_REPO" \
       "/repos/{owner}/{repo}/pulls/$PR_NUMBER" 2>/dev/null) || [ -z "$pr_json" ]; then
@@ -716,7 +768,8 @@ forgejo_verify_mergeable() {
         "state=" + ((.state // "") | tostring),
         "mergeable=" + (.mergeable | tostring),
         "draft=" + (.draft | tostring),
-        "head=" + ((.head.sha // "") | tostring)
+        "head=" + ((.head.sha // "") | tostring),
+        "base_ref=" + ((.base.ref // "") | tostring)
       else
         error("pull request payload is not an object")
       end' 2>/dev/null); then
@@ -730,13 +783,14 @@ forgejo_verify_mergeable() {
       mergeable=*) mergeable=${line#mergeable=} ;;
       draft=*) draft=${line#draft=} ;;
       head=*) live_head=${line#head=} ;;
+      base_ref=*) base_ref=${line#base_ref=} ;;
       *) continue ;;
     esac
     named=$((named + 1))
   done <<FIELDS
 $fields
 FIELDS
-  if [ "$named" -ne 4 ] || [ "$total" -ne 4 ]; then
+  if [ "$named" -ne 5 ] || [ "$total" -ne 5 ]; then
     echo "error: could not read the Forgejo pull request state before merging" >&2
     return 1
   fi
@@ -809,6 +863,17 @@ FIELDS
   [ "$ci_state" = success ] \
     || refusals="$refusals  - the combined commit status is \"$ci_state\", not success
 "
+  # Commits on the base branch that the head lacks: the compare of head...base.
+  if [ -n "$base_ref" ] \
+    && compare_json=$(tea api --login "$FORGEJO_LOGIN" --repo "$PR_OWNER/$PR_REPO" \
+      "/repos/{owner}/{repo}/compare/$live_head...$base_ref" 2>/dev/null) \
+    && behind=$(printf '%s' "$compare_json" | jq -er \
+      'if (.total_commits | type) == "number" then .total_commits | tostring else error("no count") end' 2>/dev/null); then
+    :
+  else
+    behind=unreadable
+  fi
+  stale_base_refusal "$behind" "${base_ref:-the base branch}" "$live_head"
 
   if [ -n "$refusals" ]; then
     printf 'error: refusing to merge %s\n' "$URL" >&2
@@ -1035,6 +1100,7 @@ github_verify_mergeable() {
   local json fields line red name covered missing unreported producers runs
   local total=0 named=0 refusals='' mergeable_refusal=''
   local state='' draft='' mergeable='' merge_state='' live_head='' base=''
+  local compare='' behind='unreadable'
 
   if ! json=$(gh pr view "$URL" --json state,isDraft,mergeable,mergeStateStatus,headRefOid,baseRefName,statusCheckRollup 2>/dev/null) \
     || [ -z "$json" ]; then
@@ -1154,6 +1220,17 @@ EOF
 $missing
 EOF
   fi
+
+  # behind_by counts base-branch commits the verified head lacks; the compare is
+  # bound to the same head SHA that --match-head-commit pins below.
+  if compare=$(gh api "repos/$PR_OWNER/$PR_REPO/compare/$base...$live_head" 2>/dev/null) \
+    && behind=$(printf '%s' "$compare" | jq -er \
+      'if (.behind_by | type) == "number" then .behind_by | tostring else error("no count") end' 2>/dev/null); then
+    :
+  else
+    behind=unreadable
+  fi
+  stale_base_refusal "$behind" "$base" "$live_head"
 
   if [ -n "$mergeable_refusal" ]; then
     if [ -z "$refusals" ] && [ "$mergeable" = UNKNOWN ]; then
@@ -1452,6 +1529,10 @@ require_current_away_authority() {
   fi
   if [ "$FM_PR_AWAY_POSTURE" = true ] && [ "${#ALLOW_MISSING[@]}" -gt 0 ]; then
     echo "error: --allow-missing is attended-only; while the away-posture record exists every required check must report" >&2
+    return 2
+  fi
+  if [ "$FM_PR_AWAY_POSTURE" = true ] && [ "$ALLOW_STALE_BASE" = true ]; then
+    echo "error: --allow-stale-base is attended-only; while the away-posture record exists the head must contain the base branch tip" >&2
     return 2
   fi
   if [ "$FM_PR_AWAY_POSTURE" = true ] && [ "$ALLOW_NO_PIPELINE" = true ]; then
