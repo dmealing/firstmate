@@ -1,0 +1,11 @@
+$ fm-pr-merge.sh pr-merge https://forgejo.example/fixture/fixture-repo/pulls/9 (total_commits 4)
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: refusing to merge https://forgejo.example/fixture/fixture-repo/pulls/9
+  - head cccccccccccccccccccccccccccccccccccccccc is 4 commit(s) behind base branch main, so its validation did not include the current base; merge or rebase the base branch into the pull request, re-validate, then retry (an attended --allow-stale-base waives this)
+[exit 1]
