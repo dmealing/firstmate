@@ -591,6 +591,22 @@ test_external_review_done_with_backup_needs_the_copy() {
   pass "external review done with a backup: refused until HEAD is under refs/remotes/backup/backup/, then accepted"
 }
 
+test_no_mistakes_dod_staggers_and_checks_before_a_new_run() {
+  local forge dod cmd out rc
+  for forge in none gerrit; do
+    dod=$(FM_ROOT="$ROOT" fm_dod_block no-mistakes nm-start fm/nm-start "$forge") || fail "no-mistakes DoD ($forge) did not render"
+    assert_contains "$dod" 'no-mistakes axi triage --conflicts' "the $forge DoD must check for a moved-base conflict before a new run"
+    assert_contains "$dod" '[key=nm-triage-stop]' "the $forge DoD must escalate a triage stop instead of starting another way"
+    assert_contains "$dod" 'Never pass `--triage-override` on your own judgement' "the $forge DoD must forbid a self-granted override"
+    cmd=$(printf '%s\n' "$dod" | sed -n 's/^2\. Run `\(.*fm-validation-admit\.sh\) --wait 480` in the foreground.*/\1/p')
+    [ -n "$cmd" ] || fail "the $forge DoD must name the headroom check with a bounded wait"
+    out=$(FM_HOME="$TMP_ROOT/admit-home" "$cmd" 2>&1); rc=$?
+    case "$rc" in 0|75) ;; *) fail "the headroom command the $forge DoD names must run (exit $rc): $out" ;; esac
+  done
+  pass "no-mistakes DoD: conflict check, runnable headroom wait, and triage-stop escalation precede a new run"
+}
+
+test_no_mistakes_dod_staggers_and_checks_before_a_new_run
 test_external_forge_is_direct_pr_only
 test_external_rule_one_forbids_every_task_push
 test_external_dod_renders_the_adapter

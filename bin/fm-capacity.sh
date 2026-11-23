@@ -65,11 +65,10 @@
 # min-avail-gb, and min-disk-gb judged on this host's own probes.
 #
 # Probes degrade gracefully: an unavailable probe prints unknown and its
-# constraint is not evaluated. Darwin reads sysctl (vm.loadavg,
-# kern.memorystatus_level, hw.logicalcpu, hw.memsize, kern.boottime); other
-# systems read /proc/loadavg, /proc/meminfo (MemAvailable/MemTotal),
-# /proc/uptime, /proc/stat btime and /proc/sys/kernel/random/boot_id; cores
-# come from getconf with a sysctl fallback; disk comes from df -Pk.
+# constraint is not evaluated. bin/fm-host-probe-lib.sh owns the load, core,
+# and memory probes; this script adds uptime and boot (Darwin kern.boottime;
+# elsewhere /proc/uptime, /proc/stat btime and
+# /proc/sys/kernel/random/boot_id) and disk (df -Pk).
 #
 # --json prints one fm-lane-capacity.v1 object (needs jq):
 #   schema, generated_epoch (this host's clock), home ("main", or the id in
@@ -120,6 +119,8 @@ set -u
 export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/fm-host-probe-lib.sh
+. "$SCRIPT_DIR/fm-host-probe-lib.sh"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
@@ -295,39 +296,10 @@ if [ -e "$LANE_CONFIG" ]; then
 fi
 
 # --- host probes ------------------------------------------------------------
-os=$(uname -s 2>/dev/null) || os=unknown
-
-load1=unknown
-if [ "$os" = Darwin ]; then
-  v=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' | awk '{print $1}')
-else
-  v=$(awk '{print $1}' /proc/loadavg 2>/dev/null)
-fi
-case "$v" in [0-9]*) load1=$v ;; esac
-
-cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null) || cores=
-is_uint "$cores" || cores=$(sysctl -n hw.logicalcpu 2>/dev/null) || cores=
-is_uint "$cores" && [ "$cores" -gt 0 ] || cores=unknown
-
-mem_free_pct=unknown
-probe_avail_gb=
-probe_total_gb=
-if [ "$os" = Darwin ]; then
-  v=$(sysctl -n kern.memorystatus_level 2>/dev/null)
-  is_uint "$v" && mem_free_pct=$v
-  v=$(sysctl -n hw.memsize 2>/dev/null)
-  if is_uint "$v" && [ "$mem_free_pct" != unknown ]; then
-    probe_total_gb=$(awk -v b="$v" 'BEGIN{printf "%.2f", b / 1073741824}')
-    probe_avail_gb=$(awk -v b="$v" -v p="$mem_free_pct" 'BEGIN{printf "%.2f", b * p / 100 / 1073741824}')
-  fi
-else
-  v=$(awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{if (t > 0 && a != "") printf "%d %.2f %.2f", a * 100 / t, a / 1048576, t / 1048576}' /proc/meminfo 2>/dev/null)
-  if [ -n "$v" ]; then
-    # shellcheck disable=SC2086
-    set -- $v
-    mem_free_pct=$1 probe_avail_gb=$2 probe_total_gb=$3
-  fi
-fi
+# bin/fm-host-probe-lib.sh owns the load, core, and memory probes.
+host_os='' load1='' cores='' mem_free_pct='' probe_avail_gb='' probe_total_gb=''
+fm_host_probe
+os=$host_os
 
 disk_free_mb=unknown
 v=$(df -Pk "$FM_HOME" 2>/dev/null | awk 'NR==2{print int($4 / 1024)}')

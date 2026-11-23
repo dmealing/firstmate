@@ -457,8 +457,18 @@ Declare that wait using the brief's status-reporting rule before waiting on the 
 Where a harness's own command limit is not established, assume it bounds commands and use that same backgrounded shape.
 ${pr_return_line}Whenever a drive call returns without a gate or an outcome - its own wait elapsed, or it was killed or timed out - reattach at once by re-running \`no-mistakes axi run --wait 55m\` with no other flags, backgrounded the same way${pr_reattach_clause} if it refuses because no run is active, read the finished outcome from \`no-mistakes axi status\`."
   fi
+  local admit_q
+  printf -v admit_q '%q' "${FM_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/bin/fm-validation-admit.sh"
   cat <<EOF
 You drive no-mistakes by responding to its gates, not by implementing fixes.
+Before the \`no-mistakes axi run\` that starts a NEW run - never before reattaching to a run that already exists - do these, in order:
+1. Where the installed no-mistakes has \`no-mistakes axi triage\`, run \`no-mistakes axi triage --conflicts\`.
+   When it reports a conflict with the base branch, main has moved under you: merge or rebase the current base into your branch, regenerate any generated file the conflict touched with the project's own generator, rerun the project's tests, commit, and check again, so the run does not meet a conflict main already made.
+   When it reports a conflict with a branch in validation or another open pull request, do not start: append \`needs-decision [at=<epoch>] [key=nm-triage-stop]: {the conflicting branch or PR and the files}\` and stop.
+2. Run \`$admit_q --wait 480\` in the foreground and start the run when it returns, whatever its verdict: it waits, at most eight minutes, while the machine is too loaded for another validation run, so runs that finish together do not all start at once; it never forbids a start.
+3. When \`no-mistakes axi run\` (or \`axi triage\`) stops before starting with a triage verdict, do not start it another way: append \`needs-decision [at=<epoch>] [key=nm-triage-stop]: triage stop {rules it named}; {the facts it printed}\` and stop.
+   Never pass \`--triage-override\` on your own judgement; pass it only when firstmate's reply for this run tells you to, with the reason that reply gives.
+
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
 When starting no-mistakes, pass \`--intent\` as only this brief's \`## Captain's intent\` subsection body, not its heading, plus any later words the captain actually said.
 Preserve the actual words without adding speaker labels or direct address; the subsection heading supplies provenance outside the pipeline input.

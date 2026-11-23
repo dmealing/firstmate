@@ -911,6 +911,24 @@ Publishing is best-effort and never changes what the watcher does; no spawn read
 No Firstmate script calls it.
 The script's header owns the report line, the published document's fields, the verdict, the beat freshness rules, the host-constraint thresholds, and the probe fallbacks.
 
+## Validation admission (config/validation-admission)
+
+Every no-mistakes ship brief tells its worker to run `bin/fm-validation-admit.sh --wait 480` immediately before the `no-mistakes axi run` that starts a new run, and to start the run when it returns.
+The check waits, with jitter, while this host's 1-minute load average is at or over its logical cores, so runs that finish together stagger instead of all starting at once; it never forbids a start and keeps no shared record, so it is not a run queue.
+The optional local, gitignored `config/validation-admission` file changes the thresholds; with the file absent the defaults apply.
+It is a per-machine choice and is not inherited by secondmate homes.
+
+One key and its value per line, each key at most once, with `#` starting a comment:
+
+```text
+max-load-per-core 1.0   # defer while load1 >= cores * this (default 1.0)
+min-mem-free-pct 10     # opt-in: defer while available memory is under this percentage (default 0, off)
+```
+
+The memory floor is off by default because a host that runs with little free memory by design would otherwise never admit.
+An unknown key, a repeated key, or a malformed value refuses with the line number rather than guessing, and the worker then starts its run without the wait.
+The script's header owns the verdict line, the wait and jitter rules, and the exit codes; `bin/fm-host-probe-lib.sh` owns the probes.
+
 ## PR-ready line after green (config/ready-after-green)
 
 The optional local, gitignored `config/ready-after-green` presence flag opts a secondmate home into publishing its child's PR-ready parent line only after the child has reported checks green.
