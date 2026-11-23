@@ -591,6 +591,7 @@ test_external_review_done_with_backup_needs_the_copy() {
   pass "external review done with a backup: refused until HEAD is under refs/remotes/backup/backup/, then accepted"
 }
 
+# shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
 test_no_mistakes_dod_staggers_and_checks_before_a_new_run() {
   local forge dod cmd out rc
   for forge in none gerrit; do

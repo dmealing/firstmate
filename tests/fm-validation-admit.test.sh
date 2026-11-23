@@ -35,6 +35,7 @@ case "\$2" in
 esac
 SH
   printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/getconf"
+  # shellcheck disable=SC2016  # $1 belongs to the generated stub, not this shell
   printf '#!/usr/bin/env bash\necho "$1" >> "%s/slept"\n' "$fakebin" > "$fakebin/sleep"
   chmod +x "$fakebin"/*
   printf '%s\n' "$fakebin"
