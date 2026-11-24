@@ -1,0 +1,24 @@
+  ▎ precedence rule below owns explicit overrides.
+
+  Now running the session-start procedure.
+
+  Thought for 6s, ran 1 shell command
+
+● Captain, session start done.
+
+  - Lock acquired by this session. Digest read in full.
+  - Wake queue empty. No work under way. No orphan records. No away record.
+  - Network checks passed silently.
+  - projects.md, secondmates.md, captain.md, captain-shared.md, learnings.md,
+    backlog all absent — built-in defaults, no secondmates, nothing to
+    reconcile. Home runs at /tmp/fm-lab.v2uFHR, role user (default).
+  - Supervision: Claude Stop-hook-owned; no fleet work, so no cycle to arm.
+    Fleet idle, ready for work.
+
+✻ Crunched for 20s · done 4:05 PM
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  glm-5.3-flash | 3% (32k/1000k) SHARP
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

@@ -1,0 +1,10 @@
+fm-ensure-agents-md.sh driven on a disposable copy of the trimmed AGENTS.md + canonical CLAUDE.md pointer:
+  output: unchanged: AGENTS.md with CLAUDE.md @AGENTS.md pointer (exit 0)
+  md5 before == md5 after; '## Maintaining this file' count: 1 (no duplicate append)
+
+Targeted suites run at head (all green):
+  tests/fm-ensure-agents-md.test.sh - 18 ok, exit 0
+  tests/fm-quota-choose.test.sh - 29 ok, exit 0
+  tests/fm-documentation-audiences.test.sh - 4 ok incl 'required documentation owner pointers cannot silently disappear'
+  FM_TEST_ONLY=test_terminal_stale_surfaced bash tests/fm-watch-triage.test.sh - ok
+  bin/fm-doc-audience-check.sh --root . - ok surfaces=142 local_links=1247

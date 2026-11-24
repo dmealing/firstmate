@@ -1,0 +1,86 @@
+HEADING MAP: identical at base and head (all 14 numbered sections, same numbers and topics)
+
+Every 'AGENTS.md section N' / 'AGENTS.md §N' reference and its resolved head heading:
+.agents/skills/afk/SKILL.md:50 -> 9. Escalation and captain etiquette
+.agents/skills/afk/SKILL.md:96 -> 7. Task lifecycle
+.agents/skills/ask-user-authority/SKILL.md:14 -> 7. Task lifecycle
+.agents/skills/bearings/SKILL.md:174 -> 9. Escalation and captain etiquette
+.agents/skills/bootstrap-diagnostics/SKILL.md:16 -> 9. Escalation and captain etiquette
+.agents/skills/bootstrap-diagnostics/SKILL.md:37 -> 8. Supervision protocol
+.agents/skills/captain-hold-lifecycle/SKILL.md:44 -> 7. Task lifecycle
+.agents/skills/captain-hold-lifecycle/SKILL.md:74 -> 9. Escalation and captain etiquette
+.agents/skills/firstmate-codexapp/SKILL.md:93 -> 9. Escalation and captain etiquette
+.agents/skills/firstmate-coding-guidelines/SKILL.md:12 -> 1. Identity and prime directives
+.agents/skills/firstmate-coding-guidelines/SKILL.md:4 -> 1. Identity and prime directives
+.agents/skills/firstmate-coding-guidelines/SKILL.md:54 -> 8. Supervision protocol
+.agents/skills/fmx-respond/SKILL.md:174 -> 1. Identity and prime directives
+.agents/skills/fmx-respond/SKILL.md:230 -> 8. Supervision protocol
+.agents/skills/fmx-respond/SKILL.md:74 -> 1. Identity and prime directives
+.agents/skills/fmx-respond/SKILL.md:82 -> 9. Escalation and captain etiquette
+.agents/skills/harness-adapters/references/common/primary-hooks.md:30 -> 3. Session start (run once at every session start)
+.agents/skills/harness-adapters/references/harness/agy.md:37 -> 9. Escalation and captain etiquette
+.agents/skills/harness-adapters/references/harness/claude.md:77 -> 13. Agent-only reference skills
+.agents/skills/harness-adapters/references/harness/gemini.md:52 -> 9. Escalation and captain etiquette
+.agents/skills/harness-adapters/references/harness/kiro.md:46 -> 9. Escalation and captain etiquette
+.agents/skills/harness-adapters/SKILL.md:26 -> 9. Escalation and captain etiquette
+.agents/skills/lavish-url/SKILL.md:72 -> 7. Task lifecycle
+.agents/skills/project-management/SKILL.md:26 -> 7. Task lifecycle
+.agents/skills/project-management/SKILL.md:37 -> 7. Task lifecycle
+.agents/skills/project-management/SKILL.md:52 -> 7. Task lifecycle
+.agents/skills/quiet/SKILL.md:27 -> 9. Escalation and captain etiquette
+.agents/skills/quiet/SKILL.md:45 -> 9. Escalation and captain etiquette
+.agents/skills/quiet/SKILL.md:53 -> 8. Supervision protocol
+.agents/skills/quiet/SKILL.md:72 -> 7. Task lifecycle
+.agents/skills/quota-array-dispatch/SKILL.md:13 -> 4. Harness and runtime dispatch
+.agents/skills/quota-array-dispatch/SKILL.md:38 -> 4. Harness and runtime dispatch
+.agents/skills/secondmate-provisioning/SKILL.md:182 -> 10. Backlog contract
+.agents/skills/stow/SKILL.md:194 -> 6. Project and knowledge management
+.agents/skills/stow/SKILL.md:227 -> 6. Project and knowledge management
+.agents/skills/stow/SKILL.md:236 -> 6. Project and knowledge management
+.agents/skills/stow/SKILL.md:238 -> 1. Identity and prime directives
+.agents/skills/stuck-crewmate-recovery/SKILL.md:13 -> 7. Task lifecycle
+.agents/skills/stuck-crewmate-recovery/SKILL.md:92 -> 9. Escalation and captain etiquette
+.agents/skills/updatefirstmate/SKILL.md:92 -> 9. Escalation and captain etiquette
+bin/backends/herdr.sh:135 -> 6. Project and knowledge management
+bin/backends/herdr.sh:3991 -> 8. Supervision protocol
+bin/fm-backlog-transition-lib.sh:24 -> 10. Backlog contract
+bin/fm-bootstrap.sh:80 -> 4. Harness and runtime dispatch
+bin/fm-brief.sh:123 -> 7. Task lifecycle
+bin/fm-brief.sh:289 -> 7. Task lifecycle
+bin/fm-brief.sh:42 -> 7. Task lifecycle
+bin/fm-ensure-agents-md.sh:28 -> 6. Project and knowledge management
+bin/fm-line-cap-lib.sh:8 -> 8. Supervision protocol
+bin/fm-project-capacity-lib.sh:13 -> 7. Task lifecycle
+bin/fm-project-mode.sh:55 -> 7. Task lifecycle
+bin/fm-promote.sh:26 -> 7. Task lifecycle
+bin/fm-quota-choose.sh:37 -> 4. Harness and runtime dispatch
+bin/fm-session-start.sh:176 -> 8. Supervision protocol
+bin/fm-session-start.sh:415 -> 3. Session start (run once at every session start)
+bin/fm-spawn.sh:1280 -> 7. Task lifecycle
+bin/fm-spawn.sh:3890 -> 4. Harness and runtime dispatch
+bin/fm-spawn.sh:9 -> 7. Task lifecycle
+bin/fm-startup-network.sh:36 -> 8. Supervision protocol
+bin/fm-supervise-daemon.sh:2142 -> 4. Harness and runtime dispatch
+bin/fm-supervise-daemon.sh:217 -> 4. Harness and runtime dispatch
+bin/fm-wake-lib.sh:466 -> 8. Supervision protocol
+docs/architecture.md:374 -> 4. Harness and runtime dispatch
+docs/architecture.md:527 -> 6. Project and knowledge management
+docs/architecture.md:533 -> 6. Project and knowledge management
+docs/configuration.md:1969 -> 7. Task lifecycle
+docs/configuration.md:1993 -> 4. Harness and runtime dispatch
+docs/configuration.md:2004 -> 4. Harness and runtime dispatch
+docs/configuration.md:2081 -> 4. Harness and runtime dispatch
+docs/configuration.md:2256 -> 4. Harness and runtime dispatch
+docs/sessionstart-nudge.md:4 -> 3. Session start (run once at every session start)
+docs/supervision-protocols/pi.md:30 -> 9. Escalation and captain etiquette
+docs/supervision-protocols/pi.md:32 -> 9. Escalation and captain etiquette
+docs/turnend-guard.md:6 -> 8. Supervision protocol
+tests/fm-brief.test.sh:716 -> 11. Crewmate briefs
+tests/fm-busy-adapter-wiring.test.sh:35 -> 7. Task lifecycle
+tests/fm-spawn-batch.test.sh:31 -> 7. Task lifecycle
+tests/fm-spawn-dispatch-profile.test.sh:160 -> 7. Task lifecycle
+tests/fm-startup-network.test.sh:314 -> 8. Supervision protocol
+tests/fm-task-delivery.test.sh:164 -> 7. Task lifecycle
+tests/fm-task-delivery.test.sh:2 -> 7. Task lifecycle
+
+total references mapped: 81

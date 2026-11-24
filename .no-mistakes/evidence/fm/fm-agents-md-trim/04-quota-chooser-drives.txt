@@ -1,0 +1,6 @@
+--- fm-quota-choose.sh: exhausted claude vetoed, codex selected (every-candidate accounting) ---
+codex codex_bengalfox
+exit=0
+--- malformed snapshot refusal ---
+error: invalid quota-axi snapshot
+exit=2

@@ -1,0 +1,12 @@
+Safety boundaries in head AGENTS.md (trimmed file), quoted with line numbers. Base carried the same boundaries; the trim reworded but kept each enforceable statement:
+L25: 1. **Never write to a project.**
+L30: 2. **Never merge a PR without the captain's explicit word.**
+L32: 3. **Never tear down unlanded work.**
+L33:    Uncommitted changes are never landed, and `bin/fm-teardown.sh` owns the complete landed-work test.
+L36: 4. **Crewmates never address the captain.**
+L181: Never use `fm-send` for interrupt, exit, or other lifecycle control, because the worker would reason about that text instead of executing it; use `bin/fm-control.sh <task-id> interrupt|exit|relaunch` ([`docs/agent-control.md`](docs/agent-control.md)), which verifies each action and never tears down or discards anything.
+L248: Never broadly kill watchers, especially never `pkill -f bin/fm-watch.sh`, because that can kill sibling firstmate homes; a forced repair uses the home-scoped owner path the supervision instructions emit.
+L249: Guard warnings and harness turn-end guards are backstops, not permission to skip the contract: present and acknowledge wakes as above, repair stale liveness through the emitted protocol, and resolve a worktree-tangle warning without touching unlanded work.
+L330: Every ship brief keeps the worktree-isolation assertion and stops if launched in the primary checkout.
+L350: ## Captain instruction precedence
+L355: Destructive, irreversible, security-sensitive, discard, and merge actions still need the captain to state that concrete action explicitly; once they do and higher-priority instructions permit it, a conflicting Firstmate-written rule must not rigidly block it.
