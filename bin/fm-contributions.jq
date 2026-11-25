@@ -65,6 +65,18 @@ def known($input; $saved):
   # A retired record ends that task's ownership even while a backlog link remains.
   | [$saved[] | .task as $task | .records[] | select(.retired != null) | {task:$task,url}] as $retired
   | map(select(. as $pair | any($retired[]; . == $pair) | not));
+# When the contribution poll next reads a record, as epoch seconds: checked_at
+# plus 1/24 of how long the item had been quiet (since its forge updated_at)
+# when checked, at most a day. An error, a missing observation or an unknown
+# updated_at leaves it due from checked_at, so it is read on every poll.
+# An item quiet for an hour stays on the five-minute poll, one quiet for a day
+# is read hourly, and one quiet for 24 days or more once a day.
+def next_read($record):
+  ($record.checked_at // "" | try fromdateiso8601 catch null) as $checked
+  | ($record.observation.updated_at // "" | try fromdateiso8601 catch null) as $updated
+  | if $checked == null then 0
+    elif $record.error != null or $record.observation == null or $updated == null then $checked
+    else $checked + ([[(($checked - $updated) / 24 | floor), 0] | max, 86400] | min) end;
 def latest_checks:
   group_by(.name) | map(sort_by([(.started_at // ""),(.id // 0)]) | last);
 def projected($input; $saved; $now; $max_age):
@@ -83,7 +95,7 @@ def projected($input; $saved; $now; $max_age):
     | (($record.checked_at // "") | try fromdateiso8601 catch null) as $checked
     # On supported URLs, a merged or closed observation never needs another read.
     | ($record.error == null and ($o.state | IN("merged","closed"))) as $final
-    | (($final or ($checked != null and ($now - $checked) >= 0 and ($now - $checked) <= $max_age))
+    | (($final or ($checked != null and ($now - $checked) >= 0 and $now <= next_read($record) + $max_age))
        and (if $record.kind == "pr" then $observed_head != null
             else $record.error == null and $record.observation != null end)
        and ($k.url | supported_url)) as $fresh
@@ -128,7 +140,7 @@ def projected($input; $saved; $now; $max_age):
        elif $o.can_merge == true then {actor:"captain",reason:"checks green; merge approval needed"}
        else {actor:"maintainer",reason:"delivery awaits the maintainer"} end) as $action
     | $k + {kind:($record.kind // (if ($k.url | contains("/issues/")) then "issue" else "pr" end)),
-         checked_at:$record.checked_at,checked:$fresh,final:$final,head:($observed_head // $recorded_head // $o.head),verdict:$verdict,reviews:$reviews,
+         checked_at:$record.checked_at,next_read:next_read($record),checked:$fresh,final:$final,head:($observed_head // $recorded_head // $o.head),verdict:$verdict,reviews:$reviews,
          distinct_checks:($checks | length),missing_verdicts:(($no_verdict | length) + (($o.absent_checks // []) | length)),
          pending_checks:($pending | length),failed_checks:($failed | length),
          stale_verdicts:((if $stale then 1 else 0 end) + ([$reviews[] | select(.freshness == "STALE")] | length)),
@@ -150,6 +162,6 @@ def summary($rows; $errors):
    stale_verdicts:([$rows[].stale_verdicts] | add // 0),
    missing_verdicts:([$rows[].missing_verdicts] | add // 0),
    unreadable_records:$errors,
-   valid_until:([$rows[] | select(.final | not) | .checked_at | try (fromdateiso8601) catch 0] | min // 0),
+   valid_until:([$rows[] | select(.final | not) | .next_read] | min // 0),
    captain:[$rows[] | select(.actor == "captain") | {task,url,kind,head,reason:(.reason[:240]),hold,
      verdict_freshness:.verdict.freshness,verdict_head:.verdict.head,verdict_source:.verdict.source,checked_at}]};

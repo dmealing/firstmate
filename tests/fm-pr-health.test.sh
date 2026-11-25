@@ -25,8 +25,9 @@ new_home() { # name -> home with the monitor flag on
   # REST serves the PR state and mergeability, GraphQL the base branch
   # commit, review requests, reviews and the head's check rollup; both render
   # from one model file per PR. Every read is logged.
-  cat > "$home/fakebin/gh" <<'SH'
-#!/usr/bin/env bash
+  printf '#!/usr/bin/env bash\n' > "$home/fakebin/gh"
+  fm_gh_conditional_prelude "$home/fakebin/gh"
+  cat >> "$home/fakebin/gh" <<'SH'
 set -eu
 printf '%s\n' "$*" >> "$FORGE/calls.log"
 model() {
@@ -144,7 +145,8 @@ with_home() {
   local home=$1; shift
   PATH="$home/fakebin:$PATH" FORGE="$home/forge" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$home/root" FM_STATE_OVERRIDE="$home/state" \
-    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" "$@"
+    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    FM_GH_STATE_DIR="$home/gh-state" "$@"
 }
 
 pr() { # home number head base mergeable(true|false|null) draft(true|false)
@@ -197,6 +199,22 @@ test_unknown_then_dirty_wakes_once() {
   expect_one "$home" '^pr-health: https://github.com/o/r/pull/8 conflicts with its base at latest commit aaaaaaa .*ship1' \
     'UNKNOWN then DIRTY must wake once'
   pass 'UNKNOWN then DIRTY wakes once'
+}
+
+test_fleet_backoff_defers_reads_without_waking() {
+  local home
+  home=$(new_home fleet-backoff)
+  task "$home" ship1 pr=https://github.com/o/r/pull/8
+  pr "$home" 8 "$HEAD_A" "$BASE_1" false false
+  arm "$home"
+  mkdir -p "$home/gh-state"
+  printf '%s\n' "$(( $(date +%s) + 600 ))" > "$home/gh-state/backoff-all"
+  : > "$home/forge/calls.log"
+  expect_silent "$home" 'a pass under a rate-limit back-off must not wake'
+  ! grep -q 'repos/o/r/pulls/8' "$home/forge/calls.log" || fail 'a pass under a rate-limit back-off still read the PR'
+  rm "$home/gh-state/backoff-all"
+  expect_one "$home" 'conflicts with its base' 'the conflict must wake once the back-off ends'
+  pass 'a fleet rate-limit back-off defers PR reads without a wake'
 }
 
 test_dirty_again_at_same_commits_is_silent() {
@@ -978,7 +996,7 @@ for test_name in test_maintainer_author_and_approval_states_are_distinct \
   test_watcher_surfaces_one_wake test_failure_once_per_latest_commit_after_cleanup \
   test_all_owned_pr_reads_start_in_one_wave test_checks_on_later_pages \
   test_unsupported_provider_has_no_github_reads test_final_contributions_are_not_enrolled_again \
-  test_many_recorded_contributions_do_not_starve_a_new_branch_pr; do
+  test_many_recorded_contributions_do_not_starve_a_new_branch_pr test_fleet_backoff_defers_reads_without_waking; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures PR health regressions"

@@ -155,7 +155,7 @@ with_home() {
   PATH="$home/fakebin:$PATH" FORGE="$home/forge" HEAD_A="$HEAD_A" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$home/root" FM_STATE_OVERRIDE="$home/state" \
     FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_CONTRIBUTIONS_NOW="$NOW" "$@"
+    FM_GH_STATE_DIR="$home/gh-state" FM_CONTRIBUTIONS_NOW="$NOW" "$@"
 }
 
 registered_checks() {
@@ -1057,27 +1057,23 @@ test_real_gh_errors_drive_retry_and_summary() {
       || fail "HTTP $status lost its error"
   done
 
-  # Only GitHub's secondary rate limit makes a 403 transient.
-  for row in \
-    'secondary|2|gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. (HTTP 403)' \
-    'forbidden|1|gh: Resource not accessible by integration (HTTP 403)'; do
-    IFS='|' read -r status calls message <<< "$row"
-    home=$(new_home "real-gh-http-403-$status")
-    forge_home "$home"
-    wrap_forge "$home"
-    printf 'real-core\n' > "$home/forge/fault"
-    out=$(with_home "$home" env FORGE_ERROR_TEXT="$message" "$ROOT/bin/fm-contributions.sh" poll) \
-      || fail "poll failed on a real gh $status HTTP 403 shape"
-    why="core read exited 1 with Ns of budget left: $message"
-    [ "$(printf '%s\n' "$out" | mask_budget)" = "contributions: observation unavailable for https://github.com/o/r/pull/8 - $why" ] \
-      || fail "a persistent $status HTTP 403 did not print one unavailable line: $out"
-    [ "$(grep -cFx 'api repos/o/r/pulls/8' "$home/forge/calls")" = "$calls" ] \
-      || fail "a $status HTTP 403 did not make exactly $calls core read(s)"
-    [ "$(jq -r .records[0].error "$home/data/delivery/contributions.json" | mask_budget)" = "forge observation unavailable: $why" ] \
-      || fail "a $status HTTP 403 lost its error"
-  done
+  # A plain 403 is a genuine failure, reported without a retry.
+  message='gh: Resource not accessible by integration (HTTP 403)'
+  home=$(new_home real-gh-http-403-forbidden)
+  forge_home "$home"
+  wrap_forge "$home"
+  printf 'real-core\n' > "$home/forge/fault"
+  out=$(with_home "$home" env FORGE_ERROR_TEXT="$message" "$ROOT/bin/fm-contributions.sh" poll) \
+    || fail 'poll failed on a real gh forbidden HTTP 403 shape'
+  why="core read exited 1 with Ns of budget left: $message"
+  [ "$(printf '%s\n' "$out" | mask_budget)" = "contributions: observation unavailable for https://github.com/o/r/pull/8 - $why" ] \
+    || fail "a forbidden HTTP 403 did not print one unavailable line: $out"
+  [ "$(grep -cFx 'api repos/o/r/pulls/8' "$home/forge/calls")" = 1 ] \
+    || fail 'a forbidden HTTP 403 was retried'
+  [ "$(jq -r .records[0].error "$home/data/delivery/contributions.json" | mask_budget)" = "forge observation unavailable: $why" ] \
+    || fail 'a forbidden HTTP 403 lost its error'
 
-  for status in 500 502 503 429; do
+  for status in 500 502 503; do
     home=$(new_home "real-gh-bare-http-$status")
     forge_home "$home"
     wrap_forge "$home"
@@ -2030,7 +2026,197 @@ test_arm_plumbs_the_reply_age_into_the_check_shim() {
 }
 
 failures=0
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_review_bot_inline_wake test_review_bot_watching_is_opt_in test_review_bot_allowlist_is_configurable test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_http_500_once_retries_without_waking test_http_500_twice_records_the_failed_read test_http_404_is_not_retried test_real_gh_errors_drive_retry_and_summary test_next_url_does_not_inherit_a_forge_diagnostic test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_many_settled_records_keep_the_poll_inside_the_check_bound test_many_settled_records_beside_a_malformed_one_keep_the_poll_inside_the_check_bound test_record_without_trailing_newline_does_not_join_its_neighbour test_records_beyond_one_read_batch_are_all_read test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs test_unanswered_thread_is_raised_again_under_hold test_resolved_thread_is_answered test_reply_rules test_reply_age_is_configurable_and_validated test_closed_pull_request_drops_its_threads test_unanswered_reraise_is_off_unless_configured test_arm_plumbs_the_reply_age_into_the_check_shim test_many_reviews_stay_readable; do
+# --- fleet GitHub budget, back-off, conditional reads, quiet cadence ---------
+
+# budget_home <name>: an owned open PR 8 behind a fake gh that answers the
+# poll's conditional reads like GitHub: an ETag per body, 304 for a matching
+# If-None-Match, X-RateLimit headers from $FORGE/remaining, and rate-limit
+# faults from $FORGE/fault (429, secondary, primary) on the core read.
+budget_home() {
+  local home
+  home=$(new_home "$1")
+  record "$home" delivery 8 open mergeable
+  mkdir -p "$home/forge"
+  printf '%s\n' "$HEAD_A" > "$home/forge/head"
+  printf '2026-09-16T07:55:00Z\n' > "$home/forge/updated"
+  printf '[]\n' > "$home/forge/comments.json"
+  cat > "$home/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >> "$FORGE/calls"
+case "$1 ${2:-}" in
+  'pr view') jq -nc --arg head "$(cat "$FORGE/head")" '{headRefOid:$head,reviewDecision:"APPROVED"}'; exit 0 ;;
+  'api --include') ;;
+  *) printf 'unexpected gh call: %s\n' "$*" >&2; exit 1 ;;
+esac
+shift 2
+tag=
+if [ "${1:-}" = -H ]; then tag=${2#If-None-Match: }; shift 2; fi
+ep=$1
+reset=$(( $(date +%s) + 3600 ))
+remaining=$(cat "$FORGE/remaining" 2>/dev/null || printf 4000)
+rate=$(printf 'X-Ratelimit-Remaining: %s\r\nX-Ratelimit-Limit: 5000\r\nX-Ratelimit-Reset: %s\r\nX-Ratelimit-Resource: core' "$remaining" "$reset")
+case "$(cat "$FORGE/fault" 2>/dev/null || true):$ep" in
+  429:repos/o/r/pulls/8)
+    printf 'HTTP/2.0 429 Too Many Requests\nRetry-After: %s\r\n%s\r\n\r\n{"message":"Too Many Requests"}\n' "$(cat "$FORGE/retry")" "$rate"
+    printf 'gh: Too Many Requests (HTTP 429)\n' >&2; exit 1 ;;
+  secondary:repos/o/r/pulls/8)
+    printf 'HTTP/2.0 403 Forbidden\nRetry-After: %s\r\n\r\n{"message":"You have exceeded a secondary rate limit."}\n' "$(cat "$FORGE/retry")"
+    printf 'gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. (HTTP 403)\n' >&2; exit 1 ;;
+  primary:repos/o/r/pulls/8)
+    printf 'HTTP/2.0 403 Forbidden\nX-Ratelimit-Remaining: 0\r\nX-Ratelimit-Limit: 5000\r\nX-Ratelimit-Reset: %s\r\nX-Ratelimit-Resource: core\r\n\r\n{"message":"API rate limit exceeded for user ID 1."}\n' "$reset"
+    printf 'gh: API rate limit exceeded for user ID 1. (HTTP 403)\n' >&2; exit 1 ;;
+esac
+case "$ep" in
+  repos/o/r/pulls/8)
+    body=$(jq -nc --arg head "$(cat "$FORGE/head")" --arg updated "$(cat "$FORGE/updated")" \
+      '{state:"open",user:{login:"author"},head:{sha:$head},draft:false,mergeable:true,merged_at:null,updated_at:$updated}') ;;
+  'repos/o/r/issues/8/comments?'*) body=$(jq -c . "$FORGE/comments.json") ;;
+  'repos/o/r/pulls/8/reviews?'*|'repos/o/r/pulls/8/comments?'*|repos/o/r/commits/*/statuses'?'*) body='[]' ;;
+  repos/o/r/commits/*/check-runs'?'*)
+    body='{"check_runs":[{"name":"test","id":1,"status":"completed","conclusion":"success","started_at":"2026-09-16T07:50:00Z"}]}' ;;
+  repos/o/r) body='{"permissions":{"push":false}}' ;;
+  *) printf 'unexpected gh read: %s\n' "$ep" >&2; exit 1 ;;
+esac
+etag="\"$(printf '%s' "$body" | cksum | cut -d' ' -f1)\""
+if [ "$etag" = "$tag" ]; then
+  printf 'HTTP/2.0 304 Not Modified\nEtag: %s\r\n%s\r\n\r\n' "$etag" "$rate"
+  printf 'gh: HTTP 304\n' >&2
+  exit 1
+fi
+printf 'HTTP/2.0 200 OK\nEtag: %s\r\n%s\r\n\r\n%s\n' "$etag" "$rate" "$body"
+SH
+  chmod +x "$home/fakebin/gh"
+  : > "$home/forge/calls"
+  printf '%s\n' "$home"
+}
+
+budget_poll() { # home [iso-now] [env assignments...]
+  local home=$1 now=${2:-$NOW}
+  shift; [ "$#" -eq 0 ] || shift
+  with_home "$home" env FM_CONTRIBUTIONS_NOW="$now" "$@" "$ROOT/bin/fm-contributions.sh" poll
+}
+
+calls_since() { # home mark-file: forge calls made after the mark was taken
+  tail -n +"$(( $(cat "$2") + 1 ))" "$1/forge/calls"
+}
+
+mark_calls() { wc -l < "$1/forge/calls" > "$1/mark"; }
+
+test_rate_limit_backs_off_instead_of_retrying() {
+  local fault home out before scope
+  for fault in 429 secondary primary; do
+    home=$(budget_home "rate-limit-$fault")
+    printf '%s\n' "$fault" > "$home/forge/fault"
+    printf '30\n' > "$home/forge/retry"
+    before=$(jq -c .records[0] "$home/data/delivery/contributions.json")
+    out=$(budget_poll "$home") || fail "poll failed on a $fault rate limit"
+    [ -z "$out" ] || fail "a $fault rate limit printed an unavailable line: $out"
+    [ "$(grep -c 'repos/o/r/pulls/8$' "$home/forge/calls")" = 1 ] || fail "a $fault rate limit was retried at once"
+    [ "$(jq -c .records[0] "$home/data/delivery/contributions.json")" = "$before" ] \
+      || fail "a $fault rate limit changed the contribution record"
+    [ ! -s "$home/state/.wake-queue" ] || fail "a $fault rate limit enqueued a wake"
+    case "$fault" in secondary) scope=all ;; *) scope=core ;; esac
+    [ -s "$home/gh-state/backoff-$scope" ] || fail "a $fault rate limit set no $scope back-off"
+    rm "$home/forge/fault"
+    mark_calls "$home"
+    out=$(budget_poll "$home" 2026-09-16T08:05:00Z) || fail "poll failed during a $fault back-off"
+    [ -z "$(calls_since "$home" "$home/mark")" ] || fail "a poll during a $fault back-off still called GitHub"
+  done
+  # Retry-After bounds the back-off: once it passes, the next poll reads again.
+  home=$(budget_home rate-limit-expires)
+  printf '429\n' > "$home/forge/fault"
+  printf '2\n' > "$home/forge/retry"
+  budget_poll "$home" >/dev/null || fail 'poll failed on a short 429'
+  rm "$home/forge/fault"
+  sleep 3
+  budget_poll "$home" 2026-09-16T08:05:00Z >/dev/null || fail 'poll failed after the back-off expired'
+  jq -e '.records[0].checked_at == "2026-09-16T08:05:00Z" and .records[0].observation.updated_at == "2026-09-16T07:55:00Z"' \
+    "$home/data/delivery/contributions.json" >/dev/null || fail 'an expired back-off did not let the poll read again'
+  pass 'a rate-limit response backs the fleet off until Retry-After or reset instead of retrying'
+}
+
+test_fleet_budget_is_shared_and_304s_are_free() {
+  local a b shared before
+  a=$(budget_home budget-a)
+  b=$(budget_home budget-b)
+  shared="$TMP_ROOT/budget-shared"
+  budget_poll "$a" "$NOW" FM_GH_STATE_DIR="$shared" FM_GH_POLL_HOURLY=10 >/dev/null || fail 'first home poll failed'
+  [ "$(cat "$shared"/ledger/* | wc -l)" = 7 ] || fail 'a full PR observation did not charge its seven core reads'
+  before=$(jq -c .records[0] "$b/data/delivery/contributions.json")
+  budget_poll "$b" "$NOW" FM_GH_STATE_DIR="$shared" FM_GH_POLL_HOURLY=10 >/dev/null || fail 'second home poll failed'
+  [ ! -s "$b/forge/calls" ] || fail 'a second home spent past the shared hourly budget'
+  [ "$(jq -c .records[0] "$b/data/delivery/contributions.json")" = "$before" ] \
+    || fail 'a budget refusal changed the second home record'
+  # The second home reuses the first home's ETags: every REST read is conditional,
+  # answered 304, and charged nothing.
+  budget_poll "$b" "$NOW" FM_GH_STATE_DIR="$shared" FM_GH_POLL_HOURLY=14 >/dev/null || fail 'second home poll failed'
+  [ "$(grep -c '^api --include -H If-None-Match: ' "$b/forge/calls")" = 7 ] \
+    || fail "the second home did not reuse the shared ETags: $(cat "$b/forge/calls")"
+  [ "$(cat "$shared"/ledger/* | wc -l)" = 7 ] || fail '304 responses were charged to the hourly budget'
+  jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error == null
+    and .records[0].observation.checks[0].name == "test"' "$b/data/delivery/contributions.json" >/dev/null \
+    || fail 'an observation assembled from 304 responses was not recorded'
+  pass 'one hourly poll budget spans homes and conditional 304 reads cost none of it'
+}
+
+test_low_remaining_pauses_polls_for_the_reserve() {
+  local home
+  home=$(budget_home low-remaining)
+  printf '400\n' > "$home/forge/remaining"
+  budget_poll "$home" >/dev/null || fail 'poll failed'
+  mark_calls "$home"
+  budget_poll "$home" 2026-09-16T08:05:00Z >/dev/null || fail 'poll failed under the reserve'
+  [ -z "$(calls_since "$home" "$home/mark")" ] || fail 'a poll spent the reserve GitHub reported as low'
+  budget_poll "$home" 2026-09-16T08:10:00Z FM_GH_POLL_RESERVE=100 >/dev/null || fail 'poll failed above a lower reserve'
+  [ -n "$(calls_since "$home" "$home/mark")" ] || fail 'a configured lower reserve did not admit the poll'
+  pass 'polls stop while X-RateLimit-Remaining is below the reserve'
+}
+
+test_conditional_reread_still_wakes_on_change() {
+  local home
+  home=$(budget_home etag-change)
+  budget_poll "$home" >/dev/null || fail 'first poll failed'
+  mark_calls "$home"
+  jq -n '[{id:12,user:{login:"maintainer"},author_association:"OWNER",body:"Please rename",
+    html_url:"https://github.com/o/r/pull/8#issuecomment-12",updated_at:"2026-09-16T08:03:00Z"}]' > "$home/forge/comments.json"
+  printf '2026-09-16T08:03:00Z\n' > "$home/forge/updated"
+  budget_poll "$home" 2026-09-16T08:05:00Z >/dev/null || fail 'second poll failed'
+  [ "$(calls_since "$home" "$home/mark" | grep -c '^api --include -H If-None-Match: ')" = 7 ] \
+    || fail 'the re-read did not send every REST read conditionally'
+  jq -e '.records[0].pending | length == 1 and .[0].author == "maintainer"' "$home/data/delivery/contributions.json" >/dev/null \
+    || fail 'a new comment behind a changed ETag did not become a pending signal'
+  [ "$(awk 'END { print NR }' "$home/state/.wake-queue")" = 1 ] || fail 'a new comment did not wake the home once'
+  pass 'conditional re-reads still deliver a new comment as one wake'
+}
+
+test_quiet_item_is_read_rarely() {
+  local home
+  home=$(budget_home quiet)
+  printf '2026-08-01T00:00:00Z\n' > "$home/forge/updated"
+  budget_poll "$home" >/dev/null || fail 'first poll failed'
+  mark_calls "$home"
+  jq -n '[{id:13,user:{login:"maintainer"},author_association:"OWNER",body:"Still wanted?",
+    html_url:"https://github.com/o/r/pull/8#issuecomment-13",updated_at:"2026-09-16T10:00:00Z"}]' > "$home/forge/comments.json"
+  printf '2026-09-16T10:00:00Z\n' > "$home/forge/updated"
+  budget_poll "$home" 2026-09-16T10:05:00Z >/dev/null || fail 'quiet poll failed'
+  [ -z "$(calls_since "$home" "$home/mark")" ] || fail 'a PR quiet for weeks was read again within the day'
+  NOW=2026-09-16T10:05:00Z bearings "$home" | jq -e '.contributions.checked == 1 and .contributions.complete == true' >/dev/null \
+    || fail 'a quiet PR between reads was reported as unchecked'
+  budget_poll "$home" 2026-09-17T08:01:00Z >/dev/null || fail 'daily poll failed'
+  [ -n "$(calls_since "$home" "$home/mark")" ] || fail 'a quiet PR was not read after a day'
+  jq -e '.records[0].pending | length == 1' "$home/data/delivery/contributions.json" >/dev/null \
+    || fail 'a comment on a quiet PR did not wake at its next read'
+  # A recently active item stays on the five-minute poll.
+  home=$(budget_home active)
+  budget_poll "$home" >/dev/null || fail 'first active poll failed'
+  mark_calls "$home"
+  budget_poll "$home" 2026-09-16T08:05:00Z >/dev/null || fail 'active poll failed'
+  [ -n "$(calls_since "$home" "$home/mark")" ] || fail 'a recently active PR was not read on the next poll'
+  pass 'a PR quiet for weeks is read daily while an active one stays on every poll'
+}
+
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_review_bot_inline_wake test_review_bot_watching_is_opt_in test_review_bot_allowlist_is_configurable test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_http_500_once_retries_without_waking test_http_500_twice_records_the_failed_read test_http_404_is_not_retried test_real_gh_errors_drive_retry_and_summary test_next_url_does_not_inherit_a_forge_diagnostic test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_many_settled_records_keep_the_poll_inside_the_check_bound test_many_settled_records_beside_a_malformed_one_keep_the_poll_inside_the_check_bound test_record_without_trailing_newline_does_not_join_its_neighbour test_records_beyond_one_read_batch_are_all_read test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs test_unanswered_thread_is_raised_again_under_hold test_resolved_thread_is_answered test_reply_rules test_reply_age_is_configurable_and_validated test_closed_pull_request_drops_its_threads test_unanswered_reraise_is_off_unless_configured test_arm_plumbs_the_reply_age_into_the_check_shim test_many_reviews_stay_readable test_rate_limit_backs_off_instead_of_retrying test_fleet_budget_is_shared_and_304s_are_free test_low_remaining_pauses_polls_for_the_reserve test_conditional_reread_still_wakes_on_change test_quiet_item_is_read_rarely; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"
