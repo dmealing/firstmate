@@ -705,6 +705,7 @@ test_parked_lanes_do_not_hold_a_place() {
   park_shell "$case_dir" shell-b
   fm_write_meta "$home/state/shell-b.meta" \
     "window=firstmate:fm-shell-b" "endpoint_task_id=shell-b" "project=$case_dir/project" "kind=ship"
+  touch -d '1 hour ago' "$home/state/gone-a.meta" "$home/state/shell-b.meta"
   out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code 0 "$rc" "parked lanes blocked a spawn: $out"
   assert_not_contains "$out" "deferred:" "parked lanes held a place"
@@ -734,6 +735,33 @@ test_unknown_liveness_still_holds_a_place() {
   pass "a lane whose liveness cannot be determined still holds its place"
 }
 
+# A record published moments ago whose launch has not reached its endpoint yet
+# reads dead but is a lane starting up, and a lane that bin/fm-control.sh is
+# replacing is between agents; both keep their place.
+test_starting_and_replaced_lanes_keep_their_place() {
+  local case_dir home out rc=0
+  case_dir=$(make_case starting task-c)
+  home="$case_dir/home"
+  declare_capacity "$home" "project 1"
+  mark_live "$case_dir" fresh-a
+  park_shell "$case_dir" fresh-a
+  fm_write_meta "$home/state/fresh-a.meta" \
+    "window=firstmate:fm-fresh-a" "endpoint_task_id=fresh-a" "project=$case_dir/project" "kind=ship"
+  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
+  expect_code "$DEFER_EXIT" "$rc" "a just-published lane was treated as parked: $out"
+  assert_contains "$out" "(fresh-a)" "the starting lane was not counted"
+  touch -d '1 hour ago' "$home/state/fresh-a.meta"
+  : > "$home/state/fresh-a.control-relaunch"
+  rc=0
+  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
+  expect_code "$DEFER_EXIT" "$rc" "a lane under control relaunch was treated as parked: $out"
+  rm -f "$home/state/fresh-a.control-relaunch"
+  rc=0
+  out=$(spawn_ship "$case_dir" task-c) || rc=$?
+  expect_code 0 "$rc" "a parked lane still blocked once settled: $out"
+  pass "a just-published lane and a lane under control relaunch keep their place"
+}
+
 # A parked lane that goes live again takes a place: its relaunch passes the same
 # admission, is refused (exit 75, lane left parked) when live lanes fill the
 # project, and is admitted when there is room.
@@ -758,6 +786,7 @@ write_parked() {  # <case-dir> <home> <id>
     add_item "$home" "$id"
     tasks-axi start "$id" --file "$home/data/backlog.md" >/dev/null
   fi
+  touch -d '1 hour ago' "$home/state/$id.meta"
 }
 
 test_relaunch_of_a_parked_lane_takes_a_place() {
@@ -817,6 +846,7 @@ test_unreadable_declaration_refuses_every_spawn
 test_batch_reports_a_deferred_pair
 test_orca_spawn_is_admitted_under_the_shared_project_lock
 test_parked_lanes_do_not_hold_a_place
+test_starting_and_replaced_lanes_keep_their_place
 test_unknown_liveness_still_holds_a_place
 test_relaunch_of_a_parked_lane_takes_a_place
 test_place_held_claim_from_a_direct_relaunch_is_ignored

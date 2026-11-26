@@ -166,6 +166,18 @@ fm_project_capacity_lookup() {  # <config-dir> <project-name>
   return 0
 }
 
+# Whether <meta> was written within FM_PROJECT_CAPACITY_LAUNCH_GRACE_SECS
+# (default 120): a spawn publishes its record and releases the project lock
+# before the launch command reaches the endpoint, so a brand-new lane reads
+# dead for a moment without being parked.
+fm_project_capacity_record_fresh() {  # <meta-file>
+  local grace=${FM_PROJECT_CAPACITY_LAUNCH_GRACE_SECS:-120} mtime now
+  case "$grace" in '' | *[!0-9]*) grace=120 ;; esac
+  mtime=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null) || return 1
+  now=$(date +%s)
+  [ $((now - mtime)) -lt "$grace" ]
+}
+
 # Count the task records holding a place in one project's capacity. A matching
 # record whose endpoint has no live session is a parked lane and is not counted.
 # <project-lock> is fm_treehouse_project_lock_path for the project being
@@ -231,7 +243,14 @@ fm_project_capacity_occupants() {  # <project-lock> <project-dir> <first-state> 
       # whose liveness is unknown, still holds its place.
       backend=$(fm_backend_of_meta "$meta")
       target=$(fm_backend_target_of_meta "$meta")
-      if [ -n "$target" ] && [ "$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null)" = dead ]; then
+      # A record published a moment ago may still be waiting for its launch
+      # command to reach the endpoint, and a lane being replaced by
+      # bin/fm-control.sh relaunch reads dead between its stop and its new
+      # agent; both keep their place.
+      if [ -n "$target" ] &&
+        [ ! -e "$state/$(basename "$meta" .meta).control-relaunch" ] &&
+        ! fm_project_capacity_record_fresh "$meta" &&
+        [ "$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null)" = dead ]; then
         FM_PROJECT_CAPACITY_PARKED=$((FM_PROJECT_CAPACITY_PARKED + 1))
         continue
       fi

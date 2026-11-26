@@ -1867,6 +1867,7 @@ A name that is `#`, or that begins with `#` and a space, cannot be declared, bec
 A place is held by every ship or scout with a live session on that project in the root home or any local secondmate home registered under it, including one working in a separate clone of the same origin, until its ready PR is recorded or it is cleaned up; a local-only ship or a scout holds its place until cleanup.
 Capacity bounds live machine load, so a parked lane, whose session has exited and which keeps only its saved branch and local copy, holds no place and never blocks a new worker.
 A lane whose session cannot be proven absent still holds its place, so an uncertain read never lets the machine go over its limit.
+A lane recorded in the last two minutes, whose launch may not have reached its session yet, and a lane being replaced by `bin/fm-control.sh relaunch` also keep their place.
 A parked lane takes a place again when it goes live: `bin/fm-spawn.sh --relaunch` runs the same admission as a fresh worker and, when live lanes already fill the project, prints one `deferred:` line, exits 75, and leaves the lane parked.
 `bin/fm-control.sh relaunch` of a lane whose agent was alive is not counted a second time, because that lane already held its place.
 The declaration is matched by the spawning clone's directory name, so clones of the same origin share the cap only when they use that same directory name.
