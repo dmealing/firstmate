@@ -25,8 +25,9 @@ new_home() { # name -> home with the monitor flag on
   # REST serves the PR state and mergeability, GraphQL the base branch
   # commit, review requests, reviews and the head's check rollup; both render
   # from one model file per PR. Every read is logged.
-  cat > "$home/fakebin/gh" <<'SH'
-#!/usr/bin/env bash
+  printf '#!/usr/bin/env bash\n' > "$home/fakebin/gh"
+  fm_gh_conditional_prelude "$home/fakebin/gh"
+  cat >> "$home/fakebin/gh" <<'SH'
 set -eu
 printf '%s\n' "$*" >> "$FORGE/calls.log"
 model() {
@@ -81,6 +82,9 @@ case "$1 $2" in
   'api repos/o/r') printf '{"permissions":{"push":false}}\n' ;;
   'api repos/o/r/pulls/'*)
     rest=${2#repos/o/r/pulls/}
+    case "$rest" in
+      [0-9]*) [ ! -f "$FORGE/rate-limit" ] || { printf 'gh: Please wait a few minutes before you try again. (HTTP 403)\n' >&2; exit 1; } ;;
+    esac
     if [ -f "$FORGE/interrupt-$rest" ]; then
       # Stop the whole pass mid-read, as a check timeout would. The case
       # records the pass's PID once it has started it.
@@ -91,10 +95,11 @@ case "$1 $2" in
     fi
     case "$rest" in
       *[!0-9]*) printf '[[]]\n' ;;
-      *) model "$rest" | jq '{state:(if .state == "open" then "open" else "closed" end),
+      *) model "$rest" | jq '({state:(if .state == "open" then "open" else "closed" end),
            merged_at:(if .state == "merged" then "2026-10-21T00:00:00Z" else null end),
            user:{login:"author"},draft,mergeable,head:{sha:.head},
-           base:{sha:"0000000000000000000000000000000000000000"},labels:[(.labels // [])[] | {name:.}]}' ;;
+           base:{sha:"0000000000000000000000000000000000000000"},labels:[(.labels // [])[] | {name:.}]}
+           + (if has("body") then {body} else {} end))' ;;
     esac ;;
   'api -i')
     # The notifications feed, when a case serves one: 304 while unchanged.
@@ -144,7 +149,8 @@ with_home() {
   local home=$1; shift
   PATH="$home/fakebin:$PATH" FORGE="$home/forge" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$home/root" FM_STATE_OVERRIDE="$home/state" \
-    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" "$@"
+    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    FM_GH_STATE_DIR="$home/gh-state" "$@"
 }
 
 pr() { # home number head base mergeable(true|false|null) draft(true|false)
@@ -197,6 +203,73 @@ test_unknown_then_dirty_wakes_once() {
   expect_one "$home" '^pr-health: https://github.com/o/r/pull/8 conflicts with its base at latest commit aaaaaaa .*ship1' \
     'UNKNOWN then DIRTY must wake once'
   pass 'UNKNOWN then DIRTY wakes once'
+}
+
+test_fleet_backoff_defers_reads_without_waking() {
+  local home
+  home=$(new_home fleet-backoff)
+  task "$home" ship1 pr=https://github.com/o/r/pull/8
+  pr "$home" 8 "$HEAD_A" "$BASE_1" false false
+  arm "$home"
+  mkdir -p "$home/gh-state"
+  printf '%s\n' "$(( $(date +%s) + 600 ))" > "$home/gh-state/backoff-all"
+  : > "$home/forge/calls.log"
+  expect_silent "$home" 'a pass under a rate-limit back-off must not wake'
+  ! grep -q 'repos/o/r/pulls/8' "$home/forge/calls.log" || fail 'a pass under a rate-limit back-off still read the PR'
+  rm "$home/gh-state/backoff-all"
+  expect_one "$home" 'conflicts with its base' 'the conflict must wake once the back-off ends'
+  pass 'a fleet rate-limit back-off defers PR reads without a wake'
+}
+
+test_backoff_on_either_resource_makes_no_pr_read() {
+  local home resource
+  home=$(new_home resource-backoff)
+  task "$home" ship1 pr=https://github.com/o/r/pull/8
+  pr "$home" 8 "$HEAD_A" "$BASE_1" false false
+  arm "$home"
+  mkdir -p "$home/gh-state"
+  for resource in core graphql; do
+    printf '%s\n' "$(( $(date +%s) + 600 ))" > "$home/gh-state/backoff-$resource"
+    : > "$home/forge/calls.log"
+    expect_silent "$home" "a pass under a $resource back-off must not wake"
+    ! grep -Eq 'repos/o/r/pulls/8|number=8' "$home/forge/calls.log" \
+      || fail "a pass under a $resource back-off still read the PR: $(cat "$home/forge/calls.log")"
+    rm "$home/gh-state/backoff-$resource"
+  done
+  expect_one "$home" 'conflicts with its base' 'the conflict must wake once the back-offs end'
+  pass 'a back-off on either resource a PR read needs makes none of its calls'
+}
+
+test_bare_rate_limit_answer_backs_off_the_fleet() {
+  local home
+  home=$(new_home rate-limit-answer)
+  task "$home" ship1 pr=https://github.com/o/r/pull/8
+  pr "$home" 8 "$HEAD_A" "$BASE_1" false false
+  arm "$home"
+  # GitHub's bare secondary rate-limit answer on a read that shows no headers.
+  : > "$home/forge/rate-limit"
+  : > "$home/forge/calls.log"
+  expect_silent "$home" 'a rate-limit answer must not wake'
+  [ -s "$home/gh-state/backoff-all" ] || fail 'a rate-limit answer set no fleet back-off'
+  [ "$(grep -c 'repos/o/r/pulls/8$' "$home/forge/calls.log")" = 1 ] || fail 'a rate-limit answer was retried at once'
+  : > "$home/forge/calls.log"
+  expect_silent "$home" 'a pass during the back-off must not wake'
+  [ ! -s "$home/forge/calls.log" ] || fail "a pass during the back-off still called GitHub: $(cat "$home/forge/calls.log")"
+  rm "$home/forge/rate-limit" "$home/gh-state/backoff-all"
+  expect_one "$home" 'conflicts with its base' 'the conflict must wake once the back-off ends'
+  pass 'a bare rate-limit answer backs the fleet off without a wake'
+}
+
+test_response_body_never_backs_off_the_fleet() {
+  local home
+  home=$(new_home body-phrase)
+  task "$home" ship1 pr=https://github.com/o/r/pull/8
+  pr "$home" 8 "$HEAD_A" "$BASE_1" false false
+  set_pr "$home" 8 '.body = "Handle the secondary rate limit here"'
+  arm "$home"
+  expect_one "$home" 'conflicts with its base' 'a PR body that names a rate limit must still settle the PR'
+  [ ! -e "$home/gh-state/backoff-all" ] || fail 'a PR body that names a rate limit set a fleet back-off'
+  pass 'a PR body that names a rate limit never sets a fleet back-off'
 }
 
 test_dirty_again_at_same_commits_is_silent() {
@@ -978,7 +1051,9 @@ for test_name in test_maintainer_author_and_approval_states_are_distinct \
   test_watcher_surfaces_one_wake test_failure_once_per_latest_commit_after_cleanup \
   test_all_owned_pr_reads_start_in_one_wave test_checks_on_later_pages \
   test_unsupported_provider_has_no_github_reads test_final_contributions_are_not_enrolled_again \
-  test_many_recorded_contributions_do_not_starve_a_new_branch_pr; do
+  test_many_recorded_contributions_do_not_starve_a_new_branch_pr test_fleet_backoff_defers_reads_without_waking \
+  test_response_body_never_backs_off_the_fleet test_backoff_on_either_resource_makes_no_pr_read \
+  test_bare_rate_limit_answer_backs_off_the_fleet; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures PR health regressions"

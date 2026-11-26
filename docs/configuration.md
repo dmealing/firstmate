@@ -122,6 +122,7 @@ Untracked files and directories whose names begin with `scratchpad` are also git
 - `bin/fm-spawn.sh` owns the base task-metadata fields it emits, while the runtime-backend section below owns backend-specific fields and selector interpretation.
 
 - [`bin/fm-contributions.sh`](../bin/fm-contributions.sh) owns durable published-contribution records under each task, observation bounds, equivalent triage-label configuration, the [review-bot setting above](#contribution-review-bots-configcontribution-review-bots), the opt-in `FM_CONTRIBUTIONS_REPLY_AGE` setting (seconds, unset by default) that turns on re-raising unanswered review threads after that age, and the authenticated contribution check.
+- [`bin/fm-gh-budget-lib.sh`](../bin/fm-gh-budget-lib.sh) owns the machine-wide GitHub poll budget and rate-limit back-off that the contribution poll and PR health monitor share across every home on the machine, and the conditional-read cache that only the contribution poll uses (the PR health monitor's core PR read is unconditional), kept under `FM_GH_STATE_DIR` (default `$XDG_STATE_HOME/firstmate/github`).
 
 - The producing PR and Relay helpers own the fields they append, [`bin/fm-classify-lib.sh`](../bin/fm-classify-lib.sh) owns status-event vocabulary, optional emission-time syntax, and legacy unknown-time handling, and `bin/fm-crew-state.sh` owns current-state reconciliation.
 
@@ -795,6 +796,8 @@ The author must act only on an explicit signal: a `CHANGES_REQUESTED` review dec
 Only author-actionable states, conflicts, and failing checks print; the maintainer and approval states remain recorded without waking the owning task.
 Reads are driven by the GitHub notifications feed: each pass makes one conditional read of it, which GitHub answers with an uncounted 304 while nothing changed, and reads only the owned PRs with new notification activity, PRs not yet read, and PRs whose last read did not settle.
 Every owned PR is still read when the feed is unavailable or returns a full page of notifications newer than the saved position, and at least every 15 minutes as the fallback sweep, because some conditions, such as a base branch moving into conflict or a check from another app failing, raise no notification.
+Its reads respect the machine-wide GitHub poll back-off in [`bin/fm-gh-budget-lib.sh`](../bin/fm-gh-budget-lib.sh): a refused read leaves the PR for a later pass without a wake.
+The branch lookup that finds a live task's open pull request number (`gh-axi pr list`) is not refused; the `gh pr view` read that then resolves its URL is, so a branch pull request is enrolled on a later pass.
 GitLab merge requests are not monitored yet.
 When no reported check is marked required, a failing reported check still counts, matching `bin/fm-pr-state.sh` for unprotected stacked bases.
 When a required check has reported, optional failures do not notify.
@@ -3405,6 +3408,10 @@ FM_TASK_INBOX_GRACE_SECS=90   # seconds an unhandled steering-inbox message may 
 FM_TASK_INBOX_RING_MAX=3      # watcher delivery attempts without an acknowledgement before the task surfaces as a stale wake for recovery
 FM_TASK_INBOX_BUSY_MAX=2      # consecutive busy-deferred due polls before a stuck-busy stale wake; 1..999999999, at most 9 decimal digits, otherwise 2; policy: bin/fm-task-inbox-lib.sh
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script; a cut check wakes with its output so far plus `timed out after <seconds>s`
+FM_GH_STATE_DIR=        # machine-wide GitHub poll budget, back-off and ETag cache; default $XDG_STATE_HOME/firstmate/github; give homes on different GitHub accounts different directories
+FM_GH_POLL_HOURLY=1000  # core GitHub reads the contribution poll may spend per hour across every home sharing FM_GH_STATE_DIR; the PR health monitor's reads are charged to the same ledger without the cap ever refusing the monitor; 304 answers are free
+FM_GH_POLL_RESERVE=1000 # background GitHub polls pause while the last reported X-RateLimit-Remaining is below this, until the window resets
+FM_GH_BACKOFF=300       # seconds a rate-limit response with no Retry-After or reset backs off its resource, or every resource after a secondary rate limit
 FM_MAIL_CHECK_BUDGET=15   # seconds allowed for one standing mail poll; valid 5..25, cut to fit FM_CHECK_TIMEOUT
 FM_MAIL_POLL_MAX_WAKES=20   # per-poll wake cap for a mail poll; valid 1..200, keeps a flood from flooding firstmate
 FM_MAIL_TIMEOUT=20   # mail-plane IMAP/SMTP socket timeout in seconds; invalid or non-positive values become 20

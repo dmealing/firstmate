@@ -70,10 +70,30 @@
 # a direct child) with a three-second margin. Every read, including one retry,
 # is capped at five seconds. A first attempt killed at that bound or deadline is
 # budget refusal; a killed retry retains the genuine failure that caused it.
-# HTTP 5xx, 429, secondary-rate-limit 403, connection, DNS and TLS failures are
-# retried once when that bound still has time. Other failures are reported
-# immediately, including a 404, which is how a lost login reads on a private
-# repository. A pull observation has three
+# HTTP 5xx, connection, DNS and TLS failures are retried once when that bound
+# still has time. Other failures are reported immediately, including a 404,
+# which is how a lost login reads on a private repository. A rate-limit
+# response (429, a 403 with no remaining requests, or a secondary rate limit)
+# is never retried: it is budget refusal that sets the machine-wide back-off.
+#
+# Every home on the machine shares one GitHub rate limit, so reads go through
+# bin/fm-gh-budget-lib.sh, which owns the shared budget, back-off and cache. A
+# read it refuses (back-off, low remaining count, or the hourly poll cap) is
+# budget refusal. Before starting a URL, poll asks the hourly cap for that
+# URL's full core cost (seven reads for a PR, three for an issue) and stops for
+# this pass when it is spent. Every REST read is conditional: it sends the
+# ETag the cache holds for the same request, from any home, and a 304 reuses
+# the cached body at no rate-limit cost, except that a pull whose mergeability
+# GitHub is still computing and a list page holding a full page of items are
+# not cached, so the next read is unconditional: GitHub's ETag covers one
+# page's body, which stays the same while the list grows behind a full page.
+# A list longer than one page is read in full without the cache. A recorded
+# URL is next read at checked_at plus 1/24 of how long it had been quiet (since
+# its forge updated_at) when checked, at most a day, and a poll skips it until
+# then: an item active within the hour stays on the five-minute poll, and one
+# quiet for 24 days or more is read daily. A record with an error, no
+# updated_at or mergeability GitHub is still computing is due on every poll.
+# A pull observation has three
 # dependent waves: core, six independent reads (seven when FM_CONTRIBUTIONS_REPLY_AGE
 # is set), then the closing head read;
 # an issue has two waves. Before starting a URL, poll reserves the smaller of
@@ -96,7 +116,8 @@
 # output (control characters dropped, at most 160 characters), or the
 # structural check that refused the observation. A later good read clears the
 # record's error, so the unavailable line is the copy that outlives it.
-# FM_CONTRIBUTIONS_MAX_AGE (default 900 seconds) bounds freshness.
+# FM_CONTRIBUTIONS_MAX_AGE (default 900 seconds) bounds freshness: a record
+# stays fresh until that long after its next read is due.
 # A supported URL whose last good observation is merged or closed is final: it is
 # never re-read, stays fresh, and every owner's saved row converges on that
 # observation, with a stale error beside it cleared.
@@ -147,9 +168,10 @@
 # FM_CONTRIBUTIONS_REPLY_AGE seconds old, poll adds
 # one pending "unanswered" signal and a wake whose text names the thread's URL
 # and its age: "check: contributions <task> <key> unanswered <url> <age>". The
-# same thread is raised again after every further reply age, whatever the
-# task's hold state, until it is answered, resolved or the pull request
-# closes. A wake raised for the comment itself counts as its first raise.
+# same thread is raised again after every further reply age, at the pull
+# request's next read, so up to a day late on a quiet one, whatever the task's
+# hold state, until it is answered, resolved or the pull request closes. A wake
+# raised for the comment itself counts as its first raise.
 # Apart from the reviewer's own later verdict, only the author's account
 # answers; a reply from another account does not. Resolution is read from the
 # forge's review threads. Issue records and the author's own comments are never
@@ -177,6 +199,8 @@ export FM_HOME FM_STATE_OVERRIDE="$STATE"
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-path-lib.sh
 . "$SCRIPT_DIR/fm-path-lib.sh"
+# shellcheck source=bin/fm-gh-budget-lib.sh
+. "$SCRIPT_DIR/fm-gh-budget-lib.sh"
 
 fail() { printf 'fm-contributions: %s\n' "$*" >&2; exit 1; }
 usage() { sed -n '2,/^set -eu$/s/^# \{0,1\}//p' "$0"; }
@@ -346,8 +370,7 @@ forge_error_summary() { # stderr-file
 
 forge_transient_error() { # stderr-file summary
   case "$2" in
-    'HTTP 5'[0-9][0-9]|'HTTP 429'|'connection error'|'DNS error'|'TLS error') return 0 ;;
-    'HTTP 403') grep -Eqi 'secondary[- ]rate[- ]limit' "$1" && return 0 ;;
+    'HTTP 5'[0-9][0-9]|'connection error'|'DNS error'|'TLS error') return 0 ;;
   esac
   return 1
 }
@@ -365,8 +388,9 @@ forge_bound_result() { # failed-rc failed-why fallback-rc
 }
 
 forge() {
-  local remaining rc=0 failed_rc=0 failed_why='' now read_deadline
+  local remaining rc=0 failed_rc=0 failed_why='' now read_deadline resource=core noted
   local forge_err=${FORGE_ERR:-$TMP/forge.err} out summary why
+  case "$1 ${2:-}" in 'api graphql'|'pr '*) resource=graphql ;; esac
   out=$(mktemp "$TMP/forge-output.XXXXXX")
   now=$(date +%s)
   read_deadline=$((now + 5))
@@ -379,13 +403,36 @@ forge() {
       rm -f -- "$out"
       return "$FORGE_BOUND_RC"
     fi
+    # The fleet back-off and reserve refuse a read the way an exhausted budget does.
+    if ! fm_gh_budget_admit "$resource"; then
+      forge_bound_result "$failed_rc" "$failed_why" 1
+      rm -f -- "$out"
+      return "$FORGE_BOUND_RC"
+    fi
     rc=0
     fm_run_timed "$remaining" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
       gh "$@" > "$out" 2> "$forge_err" || rc=$?
-    if [ "$rc" -eq 0 ]; then
+    noted=0
+    [ "$rc" -eq 124 ] || fm_gh_response_note "$resource" "$out" "$forge_err" || noted=$?
+    if [ "$resource" = core ] && [ "$rc" -ne 124 ] && ! forge_not_modified "$out"; then
+      if [ "$rc" -eq 0 ] && [ "${*: -1}" = --slurp ]; then
+        fm_gh_budget_charge "$(jq 'length' "$out" 2>/dev/null || printf 1)"
+      else
+        fm_gh_budget_charge 1
+      fi
+    fi
+    # A 304 answers a conditional read: the caller reuses its cached body.
+    if [ "$rc" -eq 0 ] || forge_not_modified "$out"; then
       cat "$out"
       rm -f -- "$out"
       return 0
+    fi
+    # A rate-limit response backs the fleet off instead of retrying at once;
+    # like an exhausted budget, it leaves this URL's records untouched.
+    if [ "$noted" -eq 2 ]; then
+      forge_bound_result "$failed_rc" "$failed_why" 1
+      rm -f -- "$out"
+      return "$FORGE_BOUND_RC"
     fi
     # A kill at the read bound or the deadline is budget refusal. If the retry
     # times out, retain the genuine forge failure that caused that retry.
@@ -407,6 +454,46 @@ forge() {
     failed_rc=$rc
     failed_why=$why
   done
+}
+
+forge_not_modified() { # forge-output-file: an --include response with status 304
+  sed -n '1p' "$1" 2>/dev/null | grep -Eq '^HTTP/[0-9.]+ 304( |$)'
+}
+
+cforge() { # endpoint object|list: one conditional REST read through the fleet cache
+  # Prints the body; a list prints as one page array, the shape --paginate
+  # --slurp gives. A list longer than one page is read in full, uncached. A
+  # full page is not cached either: the list can grow behind it without
+  # changing its body.
+  local endpoint=$1 shape=$2 raw head body etag cached tag page_size
+  case "$endpoint" in *per_page=*) page_size=${endpoint##*per_page=}; page_size=${page_size%%&*} ;; *) page_size=30 ;; esac # 30: GitHub's default page
+  raw=$(mktemp "$TMP/cforge-raw.XXXXXX"); head="$raw.head"; body="$raw.body"; cached="$raw.cached"
+  if fm_gh_cache_get "api $endpoint" etag "$cached"; then
+    forge api --include -H "If-None-Match: $etag" "$endpoint" > "$raw" || { rm -f -- "$raw" "$cached"; return 1; }
+  else
+    forge api --include "$endpoint" > "$raw" || { rm -f -- "$raw" "$cached"; return 1; }
+  fi
+  if forge_not_modified "$raw"; then
+    mv -f -- "$cached" "$body"
+  elif head -c 5 "$raw" | grep -q '^HTTP/'; then
+    fm_gh_response_split "$raw" "$head" "$body"
+    if [ "$shape" = list ] && fm_gh_header "$head" Link | grep -q 'rel="next"'; then
+      rm -f -- "$raw" "$head" "$body" "$cached"
+      forge api "$endpoint" --paginate --slurp
+      return
+    fi
+    tag=$(fm_gh_header "$head" ETag | tr -d '\r')
+    if [ "$shape" = object ]; then
+      jq -e 'has("mergeable") and .mergeable == null' "$body" >/dev/null 2>&1 || fm_gh_cache_put "api $endpoint" "$tag" "$body"
+    elif jq -e --argjson size "$page_size" '(if type == "array" then length elif has("check_runs") then (.check_runs | length) else $size end) < $size' "$body" >/dev/null 2>&1; then
+      fm_gh_cache_put "api $endpoint" "$tag" "$body"
+    fi
+  else
+    mv -f -- "$raw" "$body"
+  fi
+  rm -f -- "$raw" "$head" "$cached"
+  if [ "$shape" = list ]; then jq -s . "$body"; else cat "$body"; fi
+  rm -f -- "$body"
 }
 
 unobserved() { # why: a structural check, not a forge read, refused the observation
@@ -432,23 +519,29 @@ observe() { # canonical GitHub URL -> normalized JSON
   case "$kind" in pull) endpoint="repos/$part/pulls/$number" ;; issues) endpoint="repos/$part/issues/$number" ;; *) return 1 ;; esac
   rm -f -- "$TMP/budget-exhausted" "$TMP/forge-unavailable" "$TMP/why"
   BUDGET_EXHAUSTED=0
-  FORGE_ERR="$TMP/core.err" forge api "$endpoint" > "$TMP/core.json" || return 1
+  # A pull observation closes with a GraphQL head read, so a refused GraphQL
+  # budget refuses the whole observation before any REST read is spent.
+  if [ "$kind" = pull ] && ! fm_gh_budget_admit graphql; then
+    forge_bound_result 0 '' 1
+    return 1
+  fi
+  FORGE_ERR="$TMP/core.err" cforge "$endpoint" object > "$TMP/core.json" || return 1
   jq -e '(.state == "open" or .state == "closed") and (.user.login | type == "string")' "$TMP/core.json" >/dev/null \
     || unobserved 'core read returned an unexpected shape' || return 1
   if [ "$kind" = pull ]; then
     head=$(jq -er '.head.sha | select(test("^[a-fA-F0-9]{40}$"))' "$TMP/core.json") \
       || unobserved 'core read named no head commit' || return 1
-    FORGE_ERR="$TMP/comments.err" forge api "repos/$part/issues/$number/comments?per_page=100" --paginate --slurp > "$TMP/comments.json" &
+    FORGE_ERR="$TMP/comments.err" cforge "repos/$part/issues/$number/comments?per_page=100" list > "$TMP/comments.json" &
     local comments_pid=$!
-    FORGE_ERR="$TMP/reviews.err" forge api "$endpoint/reviews?per_page=100" --paginate --slurp > "$TMP/reviews.json" &
+    FORGE_ERR="$TMP/reviews.err" cforge "$endpoint/reviews?per_page=100" list > "$TMP/reviews.json" &
     local reviews_pid=$!
-    FORGE_ERR="$TMP/inline.err" forge api "$endpoint/comments?per_page=100" --paginate --slurp > "$TMP/inline.json" &
+    FORGE_ERR="$TMP/inline.err" cforge "$endpoint/comments?per_page=100" list > "$TMP/inline.json" &
     local inline_pid=$!
-    FORGE_ERR="$TMP/checks.err" forge api "repos/$part/commits/$head/check-runs?filter=all&per_page=100" --paginate --slurp > "$TMP/checks.json" &
+    FORGE_ERR="$TMP/checks.err" cforge "repos/$part/commits/$head/check-runs?filter=all&per_page=100" list > "$TMP/checks.json" &
     local checks_pid=$!
-    FORGE_ERR="$TMP/statuses.err" forge api "repos/$part/commits/$head/statuses?per_page=100" --paginate --slurp > "$TMP/statuses.json" &
+    FORGE_ERR="$TMP/statuses.err" cforge "repos/$part/commits/$head/statuses?per_page=100" list > "$TMP/statuses.json" &
     local statuses_pid=$!
-    FORGE_ERR="$TMP/repo.err" forge api "repos/$part" > "$TMP/repo.json" &
+    FORGE_ERR="$TMP/repo.err" cforge "repos/$part" object > "$TMP/repo.json" &
     local repo_pid=$!
     local -a pids=("$comments_pid" "$reviews_pid" "$inline_pid" "$checks_pid" "$statuses_pid" "$repo_pid")
     printf '[]\n' > "$TMP/threads.json"
@@ -481,7 +574,7 @@ observe() { # canonical GitHub URL -> normalized JSON
       | ([$issue_comments[] | select(.user.login == $c.user.login) | .created_at]
         + [$inline_comments[] | select(.user.login == $c.user.login) | .created_at]
         + [$reviews[] | select(.user.login == $c.user.login and ((.body // "") != "")) | .submitted_at]) as $replied_at
-      | {head:$c.head.sha,state:(if $c.merged_at != null then "merged" else $c.state end),
+      | {head:$c.head.sha,state:(if $c.merged_at != null then "merged" else $c.state end),updated_at:($c.updated_at // null),
           draft:$c.draft,mergeable:(if $c.mergeable == true then "mergeable" elif $c.mergeable == false then "conflicting" else "unknown" end),
           can_merge:($repo[0].permissions.push // false),
           review_decision:($after[0].reviewDecision // ""),
@@ -510,16 +603,16 @@ observe() { # canonical GitHub URL -> normalized JSON
       || unobserved 'observation could not be assembled' || return 1
   else
     label=${FM_CONTRIBUTIONS_READY_LABEL:-ready-for-pr}
-    FORGE_ERR="$TMP/comments.err" forge api "repos/$part/issues/$number/comments?per_page=100" --paginate --slurp > "$TMP/comments.json" &
+    FORGE_ERR="$TMP/comments.err" cforge "repos/$part/issues/$number/comments?per_page=100" list > "$TMP/comments.json" &
     local comments_pid=$!
-    FORGE_ERR="$TMP/issue-events.err" forge api "repos/$part/issues/$number/events?per_page=100" --paginate --slurp > "$TMP/issue-events.json" &
+    FORGE_ERR="$TMP/issue-events.err" cforge "repos/$part/issues/$number/events?per_page=100" list > "$TMP/issue-events.json" &
     local events_pid=$!
     wait_forges "$comments_pid" "$events_pid" || return 1
     jq -e 'type == "array" and all(.[]; type == "array")' "$TMP/comments.json" >/dev/null \
       || unobserved 'comment pages returned an unexpected shape' || return 1
     # Not $label: jq 1.6 parses it as the label keyword and refuses the program.
     jq -n --slurpfile timeline "$TMP/issue-events.json" --arg ready_label "$label" --slurpfile core "$TMP/core.json" --slurpfile comments "$TMP/comments.json" '
-      $core[0] as $c | {state:$c.state,head:null,
+      $core[0] as $c | {state:$c.state,head:null,updated_at:($c.updated_at // null),
         ready:any($c.labels[]; (.name | ascii_downcase) == ($ready_label | ascii_downcase)),
         checks:[],reviews:[],events:($comments[0] | add // []
           | map(select(.user.login != $c.user.login and (.author_association | IN("OWNER","MEMBER","COLLABORATOR")))
@@ -603,7 +696,7 @@ clear_unsupported_errors() {
 }
 
 poll() {
-  local task url old kind error observed why
+  local task url old kind error observed why cost
   local -a row
   acquire
   get_input
@@ -614,19 +707,22 @@ poll() {
   # One line per distinct URL: its settlement, the URL, then every owning task.
   # A contribution with a final observation is not re-read for any owner; it
   # is settled once every owner holds that final observation without an error.
-  jq_lib -nr --slurpfile input "$TMP/input.json" --slurpfile saved "$TMP/saved.json" '
+  # A quiet URL whose every owner holds a good observation is not read again
+  # until next_read in fm-contributions.jq says so.
+  jq_lib -nr --slurpfile input "$TMP/input.json" --slurpfile saved "$TMP/saved.json" --argjson now "$EPOCH" '
     known($input[0];$saved[0]) | map(select(.url | supported_url))
     | group_by(.url) | map({url:.[0].url,tasks:(map(.task) | unique)})
     | .[] | . as $known
-    | [$known.tasks[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $known.url)] | first
-      | if . != null and (.observation.state | IN("merged","closed")) then .error == null else null end] as $final
-    | [(if all($final[]; .) then "settled" elif any($final[]; . != null) then "final" else "live" end), $known.url]
+    | [$known.tasks[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $known.url)] | first] as $records
+    | [$records[] | if . != null and (.observation.state | IN("merged","closed")) then .error == null else null end] as $final
+    | [(if all($final[]; .) then "settled" elif any($final[]; . != null) then "final"
+        elif all($records[]; . != null and $now < next_read(.)) then "quiet" else "live" end), $known.url]
       + $known.tasks | @tsv' > "$TMP/known.tsv"
   : > "$TMP/live.tsv"
   while IFS=$'\t' read -r -a row; do
     [ "${#row[@]}" -ge 3 ] || continue
     case "${row[0]}" in
-      settled) ;;
+      settled|quiet) ;;
       final) settle_final "${row[@]:1}" ;;
       *) (IFS=$'\t'; printf '%s\n' "${row[*]:1}") >> "$TMP/live.tsv" ;;
     esac
@@ -639,6 +735,9 @@ poll() {
   while IFS=$'\t' read -r -a row; do
     [ $((DEADLINE - $(date +%s))) -ge "$OBSERVATION_RESERVE" ] || break
     url=${row[0]}
+    # The fleet-wide hourly poll budget must cover a whole observation.
+    case "$url" in */issues/*) cost=3 ;; *) cost=7 ;; esac
+    fm_gh_budget_admit core "$cost" || break
     observed=0
     observe "$url" || observed=$?
     [ "$BUDGET_EXHAUSTED" -eq 0 ] || continue

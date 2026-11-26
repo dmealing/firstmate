@@ -92,6 +92,8 @@ export FM_HOME FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-gh-budget-lib.sh
+. "$SCRIPT_DIR/fm-gh-budget-lib.sh"
 
 fail() { printf 'fm-pr-health: %s\n' "$*" >&2; exit 1; }
 usage() { sed -n '2,/^set -eu$/s/^# \{0,1\}//p' "$0"; }
@@ -136,12 +138,30 @@ save_health() { # json-file
   mv -f -- "$staged" "$HEALTH"
 }
 
-gh_read() { # deadline args... : one bounded forge read
-  local left=$(($1 - $(date +%s)))
+# One bounded forge read under the machine-wide GitHub poll budget
+# (bin/fm-gh-budget-lib.sh): a back-off or a low remaining count refuses it, and
+# a rate-limit response sets the back-off. Either returns 124, so the PR stays
+# unsettled for a later pass without a wake.
+gh_read() { # deadline args...
+  local left=$(($1 - $(date +%s))) resource=core out err rc=0 noted=0
   shift
   [ "$left" -gt 0 ] || return 124
   [ "$left" -le 5 ] || left=5
-  fm_run_timed "$left" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 gh "$@"
+  case "$1 ${2:-}" in 'api graphql'|'pr '*) resource=graphql ;; esac
+  fm_gh_budget_admit "$resource" || return 124
+  out=$(mktemp "${TMPDIR:-/tmp}/fm-pr-health-read.XXXXXX") || return 1
+  err="$out.err"
+  fm_run_timed "$left" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 gh "$@" > "$out" 2> "$err" || rc=$?
+  if [ "$rc" -ne 124 ]; then
+    fm_gh_response_note "$resource" "$out" "$err" || noted=$?
+    # A 304 to the conditional notifications read is free.
+    [ "$resource" != core ] || sed -n 1p "$out" | grep -Eq '^HTTP/[0-9.]+ 304' || fm_gh_budget_charge 1
+  fi
+  cat -- "$out"
+  cat -- "$err" >&2
+  rm -f -- "$out" "$err"
+  [ "$noted" -ne 2 ] || return 124
+  return "$rc"
 }
 
 PR_QUERY='query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){
@@ -216,6 +236,7 @@ read_pr() { # url deadline output-directory -> rest.json gql.json
   fm_pr_url_parse "$url" && [ "$FM_PR_PROVIDER" = github ] || return 1
   number=$FM_PR_NUMBER
   owner=${FM_PR_PATH%%/*}; repo=${FM_PR_PATH#*/}
+  fm_gh_budget_admit core && fm_gh_budget_admit graphql || return 1
   gh_read "$deadline" api "repos/$owner/$repo/pulls/$number" > "$out/rest.json" 2>/dev/null &
   local rest_pid=$!
   gh_read "$deadline" api graphql --paginate --slurp -F "owner=$owner" -F "repo=$repo" -F "number=$number" \

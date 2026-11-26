@@ -421,6 +421,12 @@ trap 'fm_test_cleanup; exit 143' TERM
 trap 'fm_test_cleanup; exit 129' HUP
 trap 'fm_test_cleanup; exit 131' QUIT
 
+# Keep the machine-wide GitHub poll budget and conditional-read cache
+# (bin/fm-gh-budget-lib.sh) out of the operator's real state: each suite gets
+# its own directory, and a case needing a separate one sets FM_GH_STATE_DIR.
+unset FM_GH_POLL_HOURLY FM_GH_POLL_RESERVE FM_GH_BACKOFF
+FM_GH_STATE_DIR=$(fm_test_tmproot fm-gh-state) && export FM_GH_STATE_DIR
+
 # fm_test_reap_orphans: best-effort sweep for fixture roots left behind by a
 # prior run that was killed hard enough to skip the traps above (e.g. a
 # SIGKILL timeout). Only removes directories carrying the .fm-test-fixture
@@ -639,12 +645,53 @@ SH
 # authenticated-user lookup answers as "fixture-user", a foreign owner for every
 # fixture URL, and the live body read answers empty, which the guard treats as a
 # clean body. A fixture writes this prelude first, then appends its own dispatch
-# with `cat >> <file>`, keeping its heredoc quoting intact.
+# with `cat >> <file>`, keeping its heredoc quoting intact. The prelude also
+# carries fm_gh_conditional_prelude's adapter.
 fm_gh_body_guard_prelude() {
   cat > "${1:?fm_gh_body_guard_prelude: <file> required}" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-} ${2:-}" != "api user" ] || { printf '%s\n' fixture-user; exit 0; }
 [ "${1:-} ${3:-} ${4:-}" != "api --jq .body" ] || exit 0
+SH
+  fm_gh_conditional_prelude "$1"
+}
+
+# fm_gh_conditional_prelude <file> appends to a bash fake gh the adapter for the
+# conditional reads bin/fm-contributions.sh makes: `gh api --include [-H
+# 'If-None-Match: <tag>'] <endpoint>`. The adapter re-runs the same fake for the
+# plain read a fixture already answers - `api <endpoint>`, or `api <endpoint>
+# --paginate --slurp` for a per_page list, whose first page it keeps - so the
+# fixture's dispatch and call log see one logical read. It frames the answer as
+# an --include response whose ETag is a checksum of the body, answers a request
+# whose tag still matches with gh's 304 shape, and adds a rel="next" Link when
+# the list had more than one page. A failed read passes through unchanged.
+fm_gh_conditional_prelude() {
+  cat >> "${1:?fm_gh_conditional_prelude: <file> required}" <<'SH'
+if [ "${1:-} ${2:-}" = "api --include" ]; then
+  fm_cond_tag=
+  shift 2
+  if [ "${1:-}" = -H ]; then fm_cond_tag=${2#If-None-Match: }; shift 2; fi
+  fm_cond_ep=$1
+  fm_cond_link=
+  case "$fm_cond_ep" in
+    *per_page=*)
+      fm_cond_body=$("$0" api "$fm_cond_ep" --paginate --slurp) || exit $?
+      [ "$(printf '%s' "$fm_cond_body" | jq 'length')" -le 1 ] \
+        || fm_cond_link=$(printf 'Link: <https://api.github.com/%s&page=2>; rel="next"\r\n_' "$fm_cond_ep")
+      fm_cond_link=${fm_cond_link%_}
+      fm_cond_body=$(printf '%s' "$fm_cond_body" | jq -c '.[0] // []') || exit 1
+      ;;
+    *) fm_cond_body=$("$0" api "$fm_cond_ep") || exit $? ;;
+  esac
+  fm_cond_etag="\"$(printf '%s' "$fm_cond_body" | cksum | cut -d' ' -f1)\""
+  if [ "$fm_cond_etag" = "$fm_cond_tag" ]; then
+    printf 'HTTP/2.0 304 Not Modified\nEtag: %s\r\nX-Ratelimit-Resource: core\r\n\r\n' "$fm_cond_etag"
+    printf 'gh: HTTP 304\n' >&2
+    exit 1
+  fi
+  printf 'HTTP/2.0 200 OK\nEtag: %s\r\nX-Ratelimit-Resource: core\r\n%s\r\n%s\n' "$fm_cond_etag" "$fm_cond_link" "$fm_cond_body"
+  exit 0
+fi
 SH
 }
 
