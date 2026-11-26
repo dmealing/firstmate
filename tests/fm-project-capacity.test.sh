@@ -705,7 +705,7 @@ test_parked_lanes_do_not_hold_a_place() {
   park_shell "$case_dir" shell-b
   fm_write_meta "$home/state/shell-b.meta" \
     "window=firstmate:fm-shell-b" "endpoint_task_id=shell-b" "project=$case_dir/project" "kind=ship"
-  touch -d '1 hour ago' "$home/state/gone-a.meta" "$home/state/shell-b.meta"
+  fm_touch_epoch "$(( $(date +%s) - 3600 ))" "$home/state/gone-a.meta" "$home/state/shell-b.meta"
   out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code 0 "$rc" "parked lanes blocked a spawn: $out"
   assert_not_contains "$out" "deferred:" "parked lanes held a place"
@@ -751,7 +751,7 @@ test_starting_and_replaced_lanes_keep_their_place() {
   out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
   expect_code "$DEFER_EXIT" "$rc" "a just-published lane was treated as parked: $out"
   assert_contains "$out" "(fresh-a)" "the starting lane was not counted"
-  touch -d '1 hour ago' "$home/state/fresh-a.meta"
+  fm_touch_epoch "$(( $(date +%s) - 3600 ))" "$home/state/fresh-a.meta"
   # A lane relaunched before keeps the journal of its finished transaction.
   printf 'v1\ntask=fresh-a\nphase=complete\n' > "$home/state/fresh-a.control-relaunch"
   mkdir "$home/state/.control-fresh-a.lock"
@@ -790,7 +790,7 @@ write_parked() {  # <case-dir> <home> <id>
     add_item "$home" "$id"
     tasks-axi start "$id" --file "$home/data/backlog.md" >/dev/null
   fi
-  touch -d '1 hour ago' "$home/state/$id.meta"
+  fm_touch_epoch "$(( $(date +%s) - 3600 ))" "$home/state/$id.meta"
 }
 
 test_relaunch_of_a_parked_lane_takes_a_place() {
