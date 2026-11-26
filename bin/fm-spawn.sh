@@ -238,13 +238,19 @@
 #   project-identity lock - taken on every backend whenever the declaration caps
 #   any project, Orca included, because an uncapped clone's worker still holds a
 #   place for a capped clone of the same origin - and holds it through metadata
-#   publication. A spawn that finds
+#   publication. Only a lane with a live session holds a place, so parked lanes
+#   (no live agent, only a saved branch and local copy) never block a spawn. A
+#   spawn that finds
 #   every place held prints one `deferred:` line and exits 75 before any brief
 #   render, endpoint, worktree, record, or backlog move exists, so the task stays
 #   exactly as queued as it was; an unreadable declaration refuses with exit 1.
 #   A batch reports such a pair as `batch: DEFERRED` and exits 75 when nothing
-#   else failed. A relaunch and a --secondmate spawn are never counted against
-#   capacity.
+#   else failed. A --relaunch of a parked lane takes a place again when it goes
+#   live, so it passes the same admission and is deferred with exit 75, leaving
+#   the lane parked, when live lanes fill the capacity; a relaunch that
+#   bin/fm-control.sh drives for a lane whose agent was alive keeps the place it
+#   already held and is not counted. A --secondmate spawn is never counted
+#   against capacity.
 #   With no harness arg, a crewmate/scout spawn resolves the CREW harness only when
 #   config/crew-dispatch.json is absent. When that file exists, crewmate/scout
 #   spawns require an explicit harness so firstmate cannot silently skip dispatch
@@ -4277,11 +4283,20 @@ fi
 # declaration, what holds a place, and why this is race-safe). A fresh worker
 # for a project whose declared capacity is already held is deferred here, before
 # any brief render, endpoint, worktree, record, or backlog move exists, so the
-# deferral leaves the task exactly as queued as it was. A relaunch replaces a
-# worker that already holds a place, and a secondmate is not a worker.
+# deferral leaves the task exactly as queued as it was. A secondmate is not a
+# worker. A relaunch of a parked lane takes a place again when it goes live, so
+# it is admitted like a fresh spawn; only bin/fm-control.sh relaunch, which
+# stopped a lane that was alive and so still holds its place, skips the count.
 SPAWN_PROJECT_CAPACITY=
 SPAWN_PROJECT_CAPACITY_ANY=
-if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
+SPAWN_CAPACITY_ADMIT=0
+if [ "$KIND" != secondmate ]; then
+  if [ "$RELAUNCH" -eq 0 ] ||
+    [ "$SPAWN_CONTROL_PARENT" -ne 1 ] || [ "${FM_CONTROL_RELAUNCH_PLACE_HELD:-}" != 1 ]; then
+    SPAWN_CAPACITY_ADMIT=1
+  fi
+fi
+if [ "$SPAWN_CAPACITY_ADMIT" -eq 1 ]; then
   SPAWN_CAPACITY_CONFIG=$(fm_project_capacity_config_dir "$FM_HOME" "$CONFIG") || {
     echo "error: could not resolve the root Firstmate home that declares project capacity for $PROJ_ABS" >&2
     exit 1
@@ -4293,8 +4308,12 @@ if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
   SPAWN_PROJECT_CAPACITY=$FM_PROJECT_CAPACITY
   SPAWN_PROJECT_CAPACITY_ANY=$FM_PROJECT_CAPACITY_ANY
 fi
-if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] &&
-  { [ "$BACKEND" != orca ] || [ -n "$SPAWN_PROJECT_CAPACITY_ANY" ]; }; then
+if [ "$SPAWN_CAPACITY_ADMIT" -eq 1 ] &&
+  if [ "$RELAUNCH" -eq 0 ]; then
+    [ "$BACKEND" != orca ] || [ -n "$SPAWN_PROJECT_CAPACITY_ANY" ]
+  else
+    [ -n "$SPAWN_PROJECT_CAPACITY_ANY" ]
+  fi; then
   SPAWN_TREEHOUSE_PROJECT_LOCK=$(fm_treehouse_project_lock_path "$PROJ_ABS") || {
     echo "error: could not resolve the shared Treehouse project lock for $PROJ_ABS" >&2
     exit 1
@@ -4315,7 +4334,11 @@ if [ -n "$SPAWN_PROJECT_CAPACITY" ]; then
     exit 1
   fi
   if [ "$FM_PROJECT_CAPACITY_OCCUPANTS" -ge "$SPAWN_PROJECT_CAPACITY" ]; then
-    echo "deferred: project $(basename "$PROJ_ABS") admits $SPAWN_PROJECT_CAPACITY worker(s) at once on this machine ($FM_PROJECT_CAPACITY_FILE) and $FM_PROJECT_CAPACITY_OCCUPANTS already hold a place ($FM_PROJECT_CAPACITY_OCCUPANT_IDS); task $ID was not launched and its backlog item stays queued - dispatch it again once one of them records its ready PR or is cleaned up" >&2
+    if [ "$RELAUNCH" -eq 1 ]; then
+      echo "deferred: project $(basename "$PROJ_ABS") admits $SPAWN_PROJECT_CAPACITY worker(s) at once on this machine ($FM_PROJECT_CAPACITY_FILE) and $FM_PROJECT_CAPACITY_OCCUPANTS live ones already hold a place ($FM_PROJECT_CAPACITY_OCCUPANT_IDS); task $ID stays parked and was not relaunched - relaunch it again once one of them records its ready PR, exits, or is cleaned up" >&2
+    else
+      echo "deferred: project $(basename "$PROJ_ABS") admits $SPAWN_PROJECT_CAPACITY worker(s) at once on this machine ($FM_PROJECT_CAPACITY_FILE) and $FM_PROJECT_CAPACITY_OCCUPANTS already hold a place ($FM_PROJECT_CAPACITY_OCCUPANT_IDS); task $ID was not launched and its backlog item stays queued - dispatch it again once one of them records its ready PR, exits, or is cleaned up" >&2
+    fi
     exit "$FM_PROJECT_CAPACITY_DEFER_EXIT"
   fi
 fi

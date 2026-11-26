@@ -41,14 +41,21 @@
 #   - names the same project identity, meaning its project resolves to the same
 #     shared project lock path (fm_treehouse_project_lock_path), which is keyed
 #     by the project's resolved origin, so workers in any clone of that origin
-#     are counted, and
+#     are counted,
 #   - has no recorded PR handoff: the pr= line bin/fm-pr-check.sh records when a
 #     worker's PR is ready, after which the worker waits on review or merge and
-#     no longer uses local resources.
-# A place therefore frees when a PR-based ship records its ready PR, or when any
-# task is cleaned up and its record removed. A local-only ship and a scout have
-# no recorded handoff and hold their place until cleanup. A worker that is
-# steered back into work after its PR handoff is not counted again.
+#     no longer uses local resources, and
+#   - has a live session, no endpoint, or an endpoint whose liveness cannot be
+#     proven absent. A parked lane, whose endpoint is proven gone or holds only
+#     a shell, holds no place unless a firstmate action still holds its record
+#     or its control lock (fm_project_capacity_occupants).
+# A place therefore frees when a PR-based ship records its ready PR, when its
+# endpoint is proven gone or holds only a shell, or when any task is cleaned up
+# and its record removed. A local-only ship and a scout hold their place while
+# their session is live, while they have no endpoint or their liveness cannot be
+# proven, or while a firstmate action holds their record or control lock. A
+# worker that is steered back into work after its PR handoff is not counted
+# again.
 # The declaration is matched by the spawning clone's directory name, so clones
 # of one origin share the cap only when they use that same directory name. A
 # clone of that origin under a different directory name finds no declaration
@@ -57,6 +64,11 @@
 # A record whose project directory no longer exists cannot be matched and holds
 # no place. Remote homes are never walked, because their workers run on another
 # machine.
+#
+# A relaunch of a lane that was already parked is admitted like a fresh spawn,
+# against the live lanes other than itself. A relaunch of a lane whose agent was
+# alive until bin/fm-control.sh stopped it to replace it keeps the place it
+# held, so it is not refused after its agent was stopped.
 #
 # Race safety: bin/fm-spawn.sh evaluates admission while holding the shared
 # project lock and keeps holding it until the new task record is published, so
@@ -67,9 +79,9 @@
 # place needs no lock, because removing a record or adding pr= only ever lowers
 # the count.
 #
-# Requires bin/fm-wake-lib.sh (root home, local homes, project lock path),
+# Requires bin/fm-wake-lib.sh (root home, local homes, project lock path, lock holder),
 # bin/fm-secondmate-registry-lib.sh (which the local-homes walk reads), and
-# bin/fm-backend.sh (fm_meta_get) to be sourced first. No side effects on source.
+# bin/fm-backend.sh (fm_meta_get, fm_backend_agent_state) to be sourced first. No side effects on source.
 
 # Exit status of a spawn deferred because the project is at capacity: the
 # sysexits "temporary failure" code, so a caller can tell a deferral that leaves
@@ -161,7 +173,29 @@ fm_project_capacity_lookup() {  # <config-dir> <project-name>
   return 0
 }
 
-# Count the task records holding a place in one project's capacity.
+# Whether a live process holds <lockdir>: the per-task record lock a spawn holds
+# through launch delivery, or the control lock bin/fm-control.sh relaunch holds
+# for its whole transaction.
+fm_project_capacity_lock_held() {  # <lockdir>
+  local pid
+  pid=$(cat "$1/pid" 2>/dev/null) || return 1
+  fm_lock_holder_alive "$1" "$pid"
+}
+
+# Whether the probe proves <target>'s agent gone on a reachable backend. A tmux
+# endpoint reads missing also when the tmux server cannot be reached, which
+# proves nothing about the window, so missing counts as gone only while that
+# server answers.
+fm_project_capacity_lane_parked() {  # <backend> <target>
+  case "$(fm_backend_agent_state "$1" "$2" 2>/dev/null)" in
+    dead) return 0 ;;
+    missing) [ "$1" != tmux ] || LC_ALL=C tmux list-sessions >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Count the task records holding a place in one project's capacity. A matching
+# record whose endpoint has no live session is a parked lane and is not counted.
 # <project-lock> is fm_treehouse_project_lock_path for the project being
 # admitted, and <project-dir> is that project's own directory, which matches
 # without recomputing its identity. The local homes come from
@@ -176,6 +210,7 @@ fm_project_capacity_lookup() {  # <config-dir> <project-name>
 # could undercount the holders.
 fm_project_capacity_occupants() {  # <project-lock> <project-dir> <first-state> <own-id>
   local want=$1 own=$2 first=$3 self=$4 state meta kind project lock id label i
+  local backend target
   local -a cache_dirs cache_locks
   FM_PROJECT_CAPACITY_OCCUPANTS=0
   FM_PROJECT_CAPACITY_OCCUPANT_IDS=
@@ -218,7 +253,22 @@ fm_project_capacity_occupants() {  # <project-lock> <project-dir> <first-state> 
         cache_locks+=("$lock")
       fi
       [ -n "$lock" ] && [ "$lock" = "$want" ] || continue
+      # Only a live session loads the machine. A record with no endpoint, or one
+      # whose liveness is unknown, still holds its place.
+      backend=$(fm_backend_of_meta "$meta")
+      target=$(fm_backend_target_of_meta "$meta")
       id=$(basename "$meta" .meta)
+      # A lane whose record a spawn or lifecycle action has locked may be
+      # waiting for its launch to reach the endpoint, and a lane being replaced
+      # by bin/fm-control.sh relaunch reads dead between its stop and its new
+      # agent while that transaction holds the lane's control lock; both keep
+      # their place.
+      if [ -n "$target" ] &&
+        ! fm_project_capacity_lock_held "$state/.control-$id.lock" &&
+        ! fm_project_capacity_lock_held "$(fm_meta_lock_path "$meta")" &&
+        fm_project_capacity_lane_parked "$backend" "$target"; then
+        continue
+      fi
       label=$id
       [ "$state" = "$first" ] || label="$id in $(dirname "$state")"
       FM_PROJECT_CAPACITY_OCCUPANTS=$((FM_PROJECT_CAPACITY_OCCUPANTS + 1))

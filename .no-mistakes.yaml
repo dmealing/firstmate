@@ -52,3 +52,8 @@ test:
     Ship or scout briefs that will drive Herdr lifecycle still require --herdr-lab at scaffold time; these Test-agent instructions are not a substitute for that brief flag.
   evidence:
     store_in_repo: true
+
+# Skip gate review of the pipeline's own evidence write-ups: they are published
+# evidence rather than code, and reviewing them only slows the gate.
+ignore_patterns:
+  - ".no-mistakes/evidence/**"
