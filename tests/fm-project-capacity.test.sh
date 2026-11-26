@@ -10,7 +10,7 @@
 # what it left behind - no task record, no rendered launch brief, no endpoint,
 # no worktree allocation, and a backlog item still queued - never by wording
 # alone. Only a lane with a live session holds a place: the fake tmux answers
-# the real liveness probe (bin/fm-backend.sh's fm_backend_agent_alive), so a
+# the real liveness probe (bin/fm-backend.sh's fm_backend_agent_state), so a
 # parked lane, a live lane, and a lane whose liveness cannot be read are each
 # driven through the real classifier.
 set -u
@@ -82,6 +82,12 @@ make_case() {  # <name> [task-id...]
 printf '%s\n' "$*" >> "$FM_FAKE_CALL_LOG"
 window_file="$FM_FAKE_CALL_LOG.window"
 shell_file="$FM_FAKE_CALL_LOG.shell"
+# While the no-server marker exists, the tmux server cannot be reached.
+if [ -e "$FM_FAKE_CALL_LOG.noserver" ]; then
+  case "${1:-}" in
+    list-windows|list-sessions) echo "no server running on /tmp/fake-tmux/default" >&2; exit 1 ;;
+  esac
+fi
 case "$*" in
   *"#{pane_tty}"*) exit 0 ;;
   *"#{pane_current_command}"*)
@@ -244,7 +250,7 @@ assert_nothing_created() {  # <case-dir> <home> <id> <calls-before> <worktrees-b
   assert_absent "$home/data/$id/launch-brief.md" "a deferred spawn rendered a launch brief for $id"
   after=$(call_count "$case_dir")
   [ "$after" -eq "$before" ] ||
-    fail "a deferred spawn touched the terminal or worktree pool for $id: $(grep -vE '^(list-windows|display-message) ' "$case_dir/calls.log" | tail -n +"$((before + 1))")"
+    fail "a deferred spawn touched the terminal or worktree pool for $id: $(grep -vE '^(list-windows|list-sessions|display-message) ' "$case_dir/calls.log" | tail -n +"$((before + 1))")"
   assert_equals "$worktrees" "$(worktree_list "$case_dir")" "a deferred spawn left a git worktree for $id"
   if [ "$HAVE_TASKS_AXI" = 1 ]; then
     [ "$(row_state "$home" "$id")" = queued ] ||
@@ -254,7 +260,7 @@ assert_nothing_created() {  # <case-dir> <home> <id> <calls-before> <worktrees-b
 
 # The calls that change something. The read-only liveness probes admission now
 # makes against each holder's endpoint are not a touch of the terminal.
-call_count() { grep -cvE '^(list-windows|display-message) ' "$1/calls.log" || true; }
+call_count() { grep -cvE '^(list-windows|list-sessions|display-message) ' "$1/calls.log" || true; }
 
 worktree_list() { git -C "$1/project" worktree list --porcelain; }
 
@@ -705,7 +711,6 @@ test_parked_lanes_do_not_hold_a_place() {
   park_shell "$case_dir" shell-b
   fm_write_meta "$home/state/shell-b.meta" \
     "window=firstmate:fm-shell-b" "endpoint_task_id=shell-b" "project=$case_dir/project" "kind=ship"
-  fm_touch_epoch "$(( $(date +%s) - 3600 ))" "$home/state/gone-a.meta" "$home/state/shell-b.meta"
   out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code 0 "$rc" "parked lanes blocked a spawn: $out"
   assert_not_contains "$out" "deferred:" "parked lanes held a place"
@@ -735,35 +740,60 @@ test_unknown_liveness_still_holds_a_place() {
   pass "a lane whose liveness cannot be determined still holds its place"
 }
 
-# A record published moments ago whose launch has not reached its endpoint yet
-# reads dead but is a lane starting up, and a lane that bin/fm-control.sh is
-# replacing is between agents while it holds the lane's control lock; both keep
-# their place. Once the transaction ends, the journal it leaves behind does not.
+# A lane whose task record a spawn or lifecycle action holds locked may still be
+# waiting for its launch to reach its endpoint, and a lane that
+# bin/fm-control.sh is replacing is between agents while it holds the lane's
+# control lock; both keep their place though their window holds only a shell.
+# Once the transaction ends, the journal it leaves behind does not.
 test_starting_and_replaced_lanes_keep_their_place() {
   local case_dir home out rc=0
   case_dir=$(make_case starting task-c)
   home="$case_dir/home"
   declare_capacity "$home" "project 1"
-  mark_live "$case_dir" fresh-a
-  park_shell "$case_dir" fresh-a
-  fm_write_meta "$home/state/fresh-a.meta" \
-    "window=firstmate:fm-fresh-a" "endpoint_task_id=fresh-a" "project=$case_dir/project" "kind=ship"
+  mark_live "$case_dir" busy-a
+  park_shell "$case_dir" busy-a
+  fm_write_meta "$home/state/busy-a.meta" \
+    "window=firstmate:fm-busy-a" "endpoint_task_id=busy-a" "project=$case_dir/project" "kind=ship"
+  mkdir "$home/state/.meta-busy-a.lock"
+  printf '%s\n' "$$" > "$home/state/.meta-busy-a.lock/pid"
   out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
-  expect_code "$DEFER_EXIT" "$rc" "a just-published lane was treated as parked: $out"
-  assert_contains "$out" "(fresh-a)" "the starting lane was not counted"
-  fm_touch_epoch "$(( $(date +%s) - 3600 ))" "$home/state/fresh-a.meta"
+  expect_code "$DEFER_EXIT" "$rc" "a lane with a locked task record was treated as parked: $out"
+  assert_contains "$out" "(busy-a)" "the lane being launched was not counted"
+  rm -rf "$home/state/.meta-busy-a.lock"
   # A lane relaunched before keeps the journal of its finished transaction.
-  printf 'v1\ntask=fresh-a\nphase=complete\n' > "$home/state/fresh-a.control-relaunch"
-  mkdir "$home/state/.control-fresh-a.lock"
-  printf '%s\n' "$$" > "$home/state/.control-fresh-a.lock/pid"
+  printf 'v1\ntask=busy-a\nphase=complete\n' > "$home/state/busy-a.control-relaunch"
+  mkdir "$home/state/.control-busy-a.lock"
+  printf '%s\n' "$$" > "$home/state/.control-busy-a.lock/pid"
   rc=0
   out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
   expect_code "$DEFER_EXIT" "$rc" "a lane under control relaunch was treated as parked: $out"
-  rm -rf "$home/state/.control-fresh-a.lock"
+  rm -rf "$home/state/.control-busy-a.lock"
   rc=0
   out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code 0 "$rc" "a parked lane with only a finished relaunch journal still blocked: $out"
-  pass "a just-published lane and a lane under control relaunch keep their place"
+  pass "a lane with a locked task record and a lane under control relaunch keep their place"
+}
+
+# A tmux server that cannot be reached says nothing about a lane's window, so
+# the lane is not proven parked and keeps its place. Once the server answers
+# and the window is absent, the lane is parked.
+test_unreachable_tmux_server_still_holds_a_place() {
+  local case_dir home out rc=0
+  case_dir=$(make_case noserver task-c)
+  home="$case_dir/home"
+  declare_capacity "$home" "project 1"
+  fm_write_meta "$home/state/down-a.meta" \
+    "window=firstmate:fm-down-a" "endpoint_task_id=down-a" "project=$case_dir/project" "kind=ship"
+  : > "$case_dir/calls.log.noserver"
+  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
+  expect_code "$DEFER_EXIT" "$rc" "a lane on an unreachable tmux server was treated as parked: $out"
+  assert_contains "$out" "1 already hold a place (down-a)" "the lane on the unreachable server was not counted"
+  assert_absent "$home/state/task-c.meta" "a spawn published past a lane on an unreachable tmux server"
+  rm -f "$case_dir/calls.log.noserver"
+  rc=0
+  out=$(spawn_ship "$case_dir" task-c) || rc=$?
+  expect_code 0 "$rc" "a lane whose window is absent on a reachable server still blocked: $out"
+  pass "a lane on an unreachable tmux server still holds its place"
 }
 
 # A parked lane that goes live again takes a place: its relaunch passes the same
@@ -790,7 +820,6 @@ write_parked() {  # <case-dir> <home> <id>
     add_item "$home" "$id"
     tasks-axi start "$id" --file "$home/data/backlog.md" >/dev/null
   fi
-  fm_touch_epoch "$(( $(date +%s) - 3600 ))" "$home/state/$id.meta"
 }
 
 test_relaunch_of_a_parked_lane_takes_a_place() {
@@ -852,5 +881,6 @@ test_orca_spawn_is_admitted_under_the_shared_project_lock
 test_parked_lanes_do_not_hold_a_place
 test_starting_and_replaced_lanes_keep_their_place
 test_unknown_liveness_still_holds_a_place
+test_unreachable_tmux_server_still_holds_a_place
 test_relaunch_of_a_parked_lane_takes_a_place
 test_place_held_claim_from_a_direct_relaunch_is_ignored

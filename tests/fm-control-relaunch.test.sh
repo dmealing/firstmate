@@ -767,6 +767,24 @@ test_relaunch_of_a_parked_lane_is_deferred_at_capacity() {
   pass "fm-control relaunch: a parked lane's relaunch at capacity is deferred with exit 75"
 }
 
+# A lane whose agent was alive already holds its place, so its fm-control
+# relaunch is not counted a second time (docs/configuration.md "Project
+# capacity"): with another lane filling the project, the replacement still
+# launches instead of exiting with the deferral code 75.
+test_relaunch_of_a_live_lane_keeps_its_place_at_capacity() {
+  local dir out rc
+  dir=$(new_case live-cap rl-live)
+  add_ship_task "$dir" rl-live
+  mkdir -p "$dir/home/config"
+  printf 'proj 1\n' > "$dir/home/config/project-capacity"
+  printf 'project=%s\nkind=ship\n' "$dir/proj" > "$dir/home/state/holder.meta"
+  out=$(run_control "$dir" rl-live relaunch --note "resume the live work"); rc=$?
+  expect_code 0 "$rc" "a live lane's relaunch at capacity should keep its place"$'\n'"$out"
+  assert_not_contains "$out" "deferred:" "a live lane's relaunch was deferred"
+  assert_grep "Firstmate operational input waiting: read" "$dir/fake/literal" "the live lane's replacement was not launched"
+  pass "fm-control relaunch: a live lane's relaunch at capacity is not counted a second time"
+}
+
 test_relaunch_requires_a_note_for_a_ship_task() {
   local dir out rc before
   dir=$(new_case nonote rl3)
@@ -3323,6 +3341,7 @@ test_relaunch_appends_the_progress_note_to_the_instructions
 test_relaunch_note_inbox_listing_is_safe_on_empty_inbox
 test_relaunch_requires_a_note_for_a_ship_task
 test_relaunch_of_a_parked_lane_is_deferred_at_capacity
+test_relaunch_of_a_live_lane_keeps_its_place_at_capacity
 test_harness_switch_moves_the_record_and_clears_prior_wiring
 test_refused_relaunch_onto_polytoken_keeps_the_project_hook_layer
 test_refused_polytoken_profile_leaves_the_running_agent
