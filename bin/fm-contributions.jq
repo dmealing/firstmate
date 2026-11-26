@@ -67,15 +67,17 @@ def known($input; $saved):
   | map(select(. as $pair | any($retired[]; . == $pair) | not));
 # When the contribution poll next reads a record, as epoch seconds: checked_at
 # plus 1/24 of how long the item had been quiet (since its forge updated_at)
-# when checked, at most a day. An error, a missing observation or an unknown
-# updated_at leaves it due from checked_at, so it is read on every poll.
+# when checked, at most a day. An error, a missing observation, an unknown
+# updated_at or a mergeability GitHub is still computing (unknown) leaves it
+# due from checked_at, so it is read on every poll.
 # An item quiet for an hour stays on the five-minute poll, one quiet for a day
 # is read hourly, and one quiet for 24 days or more once a day.
 def next_read($record):
   ($record.checked_at // "" | try fromdateiso8601 catch null) as $checked
   | ($record.observation.updated_at // "" | try fromdateiso8601 catch null) as $updated
   | if $checked == null then 0
-    elif $record.error != null or $record.observation == null or $updated == null then $checked
+    elif $record.error != null or $record.observation == null or $updated == null
+      or $record.observation.mergeable == "unknown" then $checked
     else $checked + ([[(($checked - $updated) / 24 | floor), 0] | max, 86400] | min) end;
 def latest_checks:
   group_by(.name) | map(sort_by([(.started_at // ""),(.id // 0)]) | last);

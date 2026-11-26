@@ -25,14 +25,17 @@
 # count it against the rate limit.
 # fm_gh_response_note <resource> <stdout-file> <stderr-file> records what one
 # finished gh call taught: the X-RateLimit headers of an --include response,
-# and a rate-limit response (HTTP 429, a 403 whose remaining count is 0, or gh's
-# "rate limit" error text). A rate limit sets the back-off until Retry-After,
-# else the reported reset, else FM_GH_BACKOFF seconds (default 300) from now,
-# and returns 2 so the caller backs off instead of retrying. A secondary rate
-# limit backs off every resource.
+# and a rate-limit response (HTTP 429, a 403 whose remaining count is 0, or
+# gh's rate-limit error text on stderr; a response body never counts). A rate
+# limit sets the back-off until Retry-After, else the reported reset, else
+# FM_GH_BACKOFF seconds (default 300) from now, and returns 2 so the caller
+# backs off instead of retrying. A secondary rate limit backs off every
+# resource.
 # fm_gh_cache_get <request> <etag-var> <body-file> and fm_gh_cache_put
 # <request> <etag> <body-file> keep one entry per request string (an ETag line,
 # then the body), published by rename so a reader sees one whole entry.
+# Admission prunes entries not rewritten for more than seven days, at most once
+# an hour; a pruned entry costs one ordinary read.
 # fm_gh_response_split <raw> <headers-file> <body-file> splits gh api --include
 # output; fm_gh_header <headers-file> <name> prints one header's value.
 # When the state directory cannot be created, admission admits and charging,
@@ -96,6 +99,7 @@ fm_gh_budget_admit() { # resource [cost]: 0 admits, 1 refuses; a cost checks the
   local resource=$1 cost=${2:-} dir now until name remaining=0 limit reset=0 reserve cap used
   dir=$(fm_gh_state_dir) || return 0
   now=$(date +%s)
+  fm_gh_cache_prune "$dir" "$now"
   for name in "backoff-$resource" backoff-all; do
     until=0
     [ ! -f "$dir/$name" ] || IFS= read -r until < "$dir/$name" || true
@@ -156,7 +160,7 @@ fm_gh_response_note() { # resource stdout-file stderr-file: 0 ordinary, 2 rate l
     _fm_gh_publish "$dir" "rate-$resource" "$(_fm_gh_num "$remaining" 0) $(_fm_gh_num "$limit" 0) $(_fm_gh_num "$reset" 0)"
   fi
   scope=
-  if grep -Eqi 'secondary[- ]rate[- ]limit|abuse detection' "$err" "$out" 2>/dev/null; then
+  if grep -Eqi 'secondary[- ]rate[- ]limit|abuse detection' "$err" 2>/dev/null; then
     scope=all
   elif [ "$status" = 429 ] || { [ "$status" = 403 ] && [ "$remaining" = 0 ]; } \
     || grep -Eqi 'API rate limit (exceeded|already exceeded)|HTTP 429|rate limit exceeded' "$err" 2>/dev/null; then
@@ -204,4 +208,13 @@ fm_gh_cache_put() { # request etag body-file
   file=$(_fm_gh_cache_file "$1") || return 0
   tmp=$(mktemp "${file%/*}/.entry.XXXXXX" 2>/dev/null) || return 0
   if ! { { printf '%s\n' "$2"; cat -- "$3"; } > "$tmp" && mv -f -- "$tmp" "$file" 2>/dev/null; }; then rm -f -- "$tmp"; fi
+}
+
+fm_gh_cache_prune() { # dir now: drop entries not rewritten for seven days, at most once an hour
+  local last=0
+  [ ! -f "$1/pruned" ] || IFS= read -r last < "$1/pruned" || true
+  last=$(_fm_gh_num "$last" 0)
+  [ "$last" -gt $(($2 - 3600)) ] && return 0
+  _fm_gh_publish "$1" pruned "$2"
+  find "$1/cache" -type f -mtime +7 -delete 2>/dev/null || true
 }

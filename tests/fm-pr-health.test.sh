@@ -92,10 +92,11 @@ case "$1 $2" in
     fi
     case "$rest" in
       *[!0-9]*) printf '[[]]\n' ;;
-      *) model "$rest" | jq '{state:(if .state == "open" then "open" else "closed" end),
+      *) model "$rest" | jq '({state:(if .state == "open" then "open" else "closed" end),
            merged_at:(if .state == "merged" then "2026-10-21T00:00:00Z" else null end),
            user:{login:"author"},draft,mergeable,head:{sha:.head},
-           base:{sha:"0000000000000000000000000000000000000000"},labels:[(.labels // [])[] | {name:.}]}' ;;
+           base:{sha:"0000000000000000000000000000000000000000"},labels:[(.labels // [])[] | {name:.}]}
+           + (if has("body") then {body} else {} end))' ;;
     esac ;;
   'api -i')
     # The notifications feed, when a case serves one: 304 while unchanged.
@@ -215,6 +216,18 @@ test_fleet_backoff_defers_reads_without_waking() {
   rm "$home/gh-state/backoff-all"
   expect_one "$home" 'conflicts with its base' 'the conflict must wake once the back-off ends'
   pass 'a fleet rate-limit back-off defers PR reads without a wake'
+}
+
+test_response_body_never_backs_off_the_fleet() {
+  local home
+  home=$(new_home body-phrase)
+  task "$home" ship1 pr=https://github.com/o/r/pull/8
+  pr "$home" 8 "$HEAD_A" "$BASE_1" false false
+  set_pr "$home" 8 '.body = "Handle the secondary rate limit here"'
+  arm "$home"
+  expect_one "$home" 'conflicts with its base' 'a PR body that names a rate limit must still settle the PR'
+  [ ! -e "$home/gh-state/backoff-all" ] || fail 'a PR body that names a rate limit set a fleet back-off'
+  pass 'a PR body that names a rate limit never sets a fleet back-off'
 }
 
 test_dirty_again_at_same_commits_is_silent() {
@@ -996,7 +1009,8 @@ for test_name in test_maintainer_author_and_approval_states_are_distinct \
   test_watcher_surfaces_one_wake test_failure_once_per_latest_commit_after_cleanup \
   test_all_owned_pr_reads_start_in_one_wave test_checks_on_later_pages \
   test_unsupported_provider_has_no_github_reads test_final_contributions_are_not_enrolled_again \
-  test_many_recorded_contributions_do_not_starve_a_new_branch_pr test_fleet_backoff_defers_reads_without_waking; do
+  test_many_recorded_contributions_do_not_starve_a_new_branch_pr test_fleet_backoff_defers_reads_without_waking \
+  test_response_body_never_backs_off_the_fleet; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures PR health regressions"

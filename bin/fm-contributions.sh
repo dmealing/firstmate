@@ -83,12 +83,14 @@
 # URL's full core cost (seven reads for a PR, three for an issue) and stops for
 # this pass when it is spent. Every REST read is conditional: it sends the
 # ETag the cache holds for the same request, from any home, and a 304 reuses
-# the cached body at no rate-limit cost. A list longer than one page is read in
-# full without the cache. A recorded URL is next read at checked_at plus 1/24
-# of how long it had been quiet (since its forge updated_at) when checked, at
-# most a day, and a poll skips it until then: an item active within the hour
-# stays on the five-minute poll, and one quiet for 24 days or more is read
-# daily. A record with an error or no updated_at is due on every poll.
+# the cached body at no rate-limit cost, except that a pull whose mergeability
+# GitHub is still computing is not cached, so its next read is unconditional.
+# A list longer than one page is read in full without the cache. A recorded
+# URL is next read at checked_at plus 1/24 of how long it had been quiet (since
+# its forge updated_at) when checked, at most a day, and a poll skips it until
+# then: an item active within the hour stays on the five-minute poll, and one
+# quiet for 24 days or more is read daily. A record with an error, no
+# updated_at or mergeability GitHub is still computing is due on every poll.
 # A pull observation has three
 # dependent waves: core, six independent reads (seven when FM_CONTRIBUTIONS_REPLY_AGE
 # is set), then the closing head read;
@@ -164,9 +166,10 @@
 # FM_CONTRIBUTIONS_REPLY_AGE seconds old, poll adds
 # one pending "unanswered" signal and a wake whose text names the thread's URL
 # and its age: "check: contributions <task> <key> unanswered <url> <age>". The
-# same thread is raised again after every further reply age, whatever the
-# task's hold state, until it is answered, resolved or the pull request
-# closes. A wake raised for the comment itself counts as its first raise.
+# same thread is raised again after every further reply age, at the pull
+# request's next read, so up to a day late on a quiet one, whatever the task's
+# hold state, until it is answered, resolved or the pull request closes. A wake
+# raised for the comment itself counts as its first raise.
 # Apart from the reviewer's own later verdict, only the author's account
 # answers; a reply from another account does not. Resolution is read from the
 # forge's review threads. Issue records and the author's own comments are never
@@ -475,7 +478,9 @@ cforge() { # endpoint object|list: one conditional REST read through the fleet c
       return
     fi
     tag=$(fm_gh_header "$head" ETag | tr -d '\r')
-    fm_gh_cache_put "api $endpoint" "$tag" "$body"
+    if [ "$shape" != object ] || ! jq -e 'has("mergeable") and .mergeable == null' "$body" >/dev/null 2>&1; then
+      fm_gh_cache_put "api $endpoint" "$tag" "$body"
+    fi
   else
     mv -f -- "$raw" "$body"
   fi

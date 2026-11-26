@@ -2031,7 +2031,10 @@ failures=0
 # budget_home <name>: an owned open PR 8 behind a fake gh that answers the
 # poll's conditional reads like GitHub: an ETag per body, 304 for a matching
 # If-None-Match, X-RateLimit headers from $FORGE/remaining, and rate-limit
-# faults from $FORGE/fault (429, secondary, primary) on the core read.
+# faults from $FORGE/fault (429, secondary, primary) on the core read. The
+# pull's mergeability comes from $FORGE/mergeable (default true), and the ETag
+# leaves it out: GitHub computes it in a background job, and an ETag that
+# stays put while that job settles a null must not pin the null.
 budget_home() {
   local home
   home=$(new_home "$1")
@@ -2070,7 +2073,8 @@ esac
 case "$ep" in
   repos/o/r/pulls/8)
     body=$(jq -nc --arg head "$(cat "$FORGE/head")" --arg updated "$(cat "$FORGE/updated")" \
-      '{state:"open",user:{login:"author"},head:{sha:$head},draft:false,mergeable:true,merged_at:null,updated_at:$updated}') ;;
+      --arg mergeable "$(cat "$FORGE/mergeable" 2>/dev/null || printf true)" \
+      '{state:"open",user:{login:"author"},head:{sha:$head},draft:false,mergeable:($mergeable | fromjson),merged_at:null,updated_at:$updated}') ;;
   'repos/o/r/issues/8/comments?'*) body=$(jq -c . "$FORGE/comments.json") ;;
   'repos/o/r/pulls/8/reviews?'*|'repos/o/r/pulls/8/comments?'*|repos/o/r/commits/*/statuses'?'*) body='[]' ;;
   repos/o/r/commits/*/check-runs'?'*)
@@ -2078,7 +2082,7 @@ case "$ep" in
   repos/o/r) body='{"permissions":{"push":false}}' ;;
   *) printf 'unexpected gh read: %s\n' "$ep" >&2; exit 1 ;;
 esac
-etag="\"$(printf '%s' "$body" | cksum | cut -d' ' -f1)\""
+etag="\"$(printf '%s' "$body" | jq -c 'if type == "object" then del(.mergeable) else . end' | cksum | cut -d' ' -f1)\""
 if [ "$etag" = "$tag" ]; then
   printf 'HTTP/2.0 304 Not Modified\nEtag: %s\r\n%s\r\n\r\n' "$etag" "$rate"
   printf 'gh: HTTP 304\n' >&2
@@ -2216,7 +2220,64 @@ test_quiet_item_is_read_rarely() {
   pass 'a PR quiet for weeks is read daily while an active one stays on every poll'
 }
 
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_review_bot_inline_wake test_review_bot_watching_is_opt_in test_review_bot_allowlist_is_configurable test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_http_500_once_retries_without_waking test_http_500_twice_records_the_failed_read test_http_404_is_not_retried test_real_gh_errors_drive_retry_and_summary test_next_url_does_not_inherit_a_forge_diagnostic test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_many_settled_records_keep_the_poll_inside_the_check_bound test_many_settled_records_beside_a_malformed_one_keep_the_poll_inside_the_check_bound test_record_without_trailing_newline_does_not_join_its_neighbour test_records_beyond_one_read_batch_are_all_read test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs test_unanswered_thread_is_raised_again_under_hold test_resolved_thread_is_answered test_reply_rules test_reply_age_is_configurable_and_validated test_closed_pull_request_drops_its_threads test_unanswered_reraise_is_off_unless_configured test_arm_plumbs_the_reply_age_into_the_check_shim test_many_reviews_stay_readable test_rate_limit_backs_off_instead_of_retrying test_fleet_budget_is_shared_and_304s_are_free test_low_remaining_pauses_polls_for_the_reserve test_conditional_reread_still_wakes_on_change test_quiet_item_is_read_rarely; do
+test_response_body_never_backs_off_the_fleet() {
+  local home
+  home=$(budget_home body-phrase)
+  jq -n '[{id:14,user:{login:"maintainer"},author_association:"OWNER",body:"Handle the secondary rate limit here",
+    html_url:"https://github.com/o/r/pull/8#issuecomment-14",updated_at:"2026-09-16T07:59:00Z"}]' > "$home/forge/comments.json"
+  printf '2026-09-16T07:59:00Z\n' > "$home/forge/updated"
+  budget_poll "$home" >/dev/null || fail 'poll failed on a comment that names a rate limit'
+  [ ! -e "$home/gh-state/backoff-all" ] || fail 'a comment that names a secondary rate limit set a fleet back-off'
+  jq -e '.records[0].error == null and (.records[0].pending | length) == 1
+    and .records[0].pending[0].author == "maintainer"' "$home/data/delivery/contributions.json" >/dev/null \
+    || fail 'a comment that names a secondary rate limit did not become a pending signal'
+  pass 'a response body that names a rate limit never sets a back-off'
+}
+
+test_unsettled_mergeability_is_read_again_next_poll() {
+  local home
+  home=$(budget_home mergeability-pending)
+  # Quiet, so only the unsettled mergeability makes the next poll read it.
+  printf '2026-08-01T00:00:00Z\n' > "$home/forge/updated"
+  printf 'null\n' > "$home/forge/mergeable"
+  budget_poll "$home" >/dev/null || fail 'poll failed while GitHub was computing mergeability'
+  jq -e '.records[0].observation.mergeable == "unknown"' "$home/data/delivery/contributions.json" >/dev/null \
+    || fail 'a null mergeability was not recorded as unknown'
+  printf 'true\n' > "$home/forge/mergeable"
+  mark_calls "$home"
+  budget_poll "$home" 2026-09-16T08:05:00Z >/dev/null || fail 'the poll after mergeability settled failed'
+  [ "$(calls_since "$home" "$home/mark" | grep -cxF 'api --include repos/o/r/pulls/8')" = 1 ] \
+    || fail "the pull was not read unconditionally once mergeability settled: $(calls_since "$home" "$home/mark")"
+  jq -e '.records[0].observation.mergeable == "mergeable"' "$home/data/delivery/contributions.json" >/dev/null \
+    || fail 'the settled mergeability was not recorded'
+  pass 'a pull whose mergeability GitHub is still computing is read again on the next poll'
+}
+
+test_cache_entries_not_rewritten_for_a_week_are_pruned() {
+  local dir now old recent
+  dir="$TMP_ROOT/gh-cache-prune"
+  now=$(date +%s)
+  mkdir -p "$dir/cache"
+  old=$dir/cache/$(printf 'old' | shasum -a 256 | cut -d' ' -f1)
+  recent=$dir/cache/$(printf 'recent' | shasum -a 256 | cut -d' ' -f1)
+  aged_entry() { printf '"etag"\n{}\n' > "$1"; fm_touch_epoch "$2" "$1"; }
+  admit() { FM_GH_STATE_DIR="$dir" bash -eu -c '. "$1"; fm_gh_budget_admit core' _ "$ROOT/bin/fm-gh-budget-lib.sh"; }
+  aged_entry "$old" $((now - 8 * 86400))
+  aged_entry "$recent" $((now - 6 * 86400))
+  admit || fail 'admission failed beside aged cache entries'
+  [ ! -e "$old" ] || fail 'a cache entry not rewritten for eight days was kept'
+  [ -f "$recent" ] || fail 'a cache entry rewritten six days ago was pruned'
+  aged_entry "$old" $((now - 8 * 86400))
+  admit || fail 'admission failed within an hour of a prune'
+  [ -f "$old" ] || fail 'the cache was pruned twice within an hour'
+  printf '%s\n' "$((now - 3601))" > "$dir/pruned"
+  admit || fail 'admission failed an hour after the last prune'
+  [ ! -e "$old" ] || fail 'the cache was not pruned again an hour after the last prune'
+  [ -f "$recent" ] || fail 'a recent cache entry was pruned with the aged one'
+  pass 'admission prunes cache entries not rewritten for a week, at most hourly'
+}
+
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_review_bot_inline_wake test_review_bot_watching_is_opt_in test_review_bot_allowlist_is_configurable test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_http_500_once_retries_without_waking test_http_500_twice_records_the_failed_read test_http_404_is_not_retried test_real_gh_errors_drive_retry_and_summary test_next_url_does_not_inherit_a_forge_diagnostic test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_many_settled_records_keep_the_poll_inside_the_check_bound test_many_settled_records_beside_a_malformed_one_keep_the_poll_inside_the_check_bound test_record_without_trailing_newline_does_not_join_its_neighbour test_records_beyond_one_read_batch_are_all_read test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs test_unanswered_thread_is_raised_again_under_hold test_resolved_thread_is_answered test_reply_rules test_reply_age_is_configurable_and_validated test_closed_pull_request_drops_its_threads test_unanswered_reraise_is_off_unless_configured test_arm_plumbs_the_reply_age_into_the_check_shim test_many_reviews_stay_readable test_rate_limit_backs_off_instead_of_retrying test_fleet_budget_is_shared_and_304s_are_free test_low_remaining_pauses_polls_for_the_reserve test_conditional_reread_still_wakes_on_change test_quiet_item_is_read_rarely test_response_body_never_backs_off_the_fleet test_unsettled_mergeability_is_read_again_next_poll test_cache_entries_not_rewritten_for_a_week_are_pruned; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"
