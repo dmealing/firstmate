@@ -1,0 +1,26 @@
+ok - a project with no declared capacity keeps today's uncapped dispatch
+ok - a spawn is admitted while its project still has a free place
+ok - a spawn beyond capacity is deferred before any record, brief, endpoint, worktree, or backlog move exists
+ok - a project name with spaces is declared by taking the capacity from the last field
+ok - a project name beginning with # is declared, and a # comment stays a comment
+ok - a home reached through a symlink counts each of its workers once
+ok - a recorded PR handoff or a cleanup each frees exactly one place
+ok - a restart of a task id does not count that task's own record
+ok - only this project's ship and scout records hold places
+ok - every local home shares one declared capacity per project origin, and remote homes do not count
+ok - an unreadable state directory or task record refuses admission rather than undercounting
+ok - concurrent spawns can never both take the last place
+ok - a spawn that fails after admission leaves no record and holds no place
+ok - an unreadable declaration refuses every fresh spawn rather than guessing the limit
+ok - a batch reports a capacity deferral as deferred, not failed
+ok - an Orca spawn takes the shared project lock whenever a same-origin clone is capped and defers before creating anything
+ok - exited lanes do not block a spawn while a live lane still does
+ok - a lane with a locked task record and a lane under control relaunch keep their place
+ok - a lane whose liveness cannot be determined still holds its place
+ok - a lane on an unreachable tmux server still holds its place
+ok - a relaunch of a parked lane is refused when live lanes fill the capacity and admitted when there is room
+ok - a direct relaunch cannot claim the place only the control plane's relaunch of a live lane keeps
+
+real	1m3.020s
+user	0m26.896s
+sys	0m15.815s

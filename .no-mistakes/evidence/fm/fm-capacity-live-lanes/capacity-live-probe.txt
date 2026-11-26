@@ -1,0 +1,56 @@
+scenario=parked lab=/mnt/scratch/fm-cap-live.07x2yI
+exit=0
+--- spawn output (head) ---
+WARNING: overlap risk in 'project' - another clone of the same repo has active local work:
+  /mnt/scratch/fm-cap-live.07x2yI/wt-park5 [wt-park5]: last commit 0h ago
+  /mnt/scratch/fm-cap-live.07x2yI/wt-park4 [wt-park4]: last commit 0h ago
+  /mnt/scratch/fm-cap-live.07x2yI/wt-park3 [wt-park3]: last commit 0h ago
+  /mnt/scratch/fm-cap-live.07x2yI/wt-park2 [wt-park2]: last commit 0h ago
+  /mnt/scratch/fm-cap-live.07x2yI/wt-park1 [wt-park1]: last commit 0h ago
+  /mnt/scratch/fm-cap-live.07x2yI/wt-park0 [wt-park0]: last commit 0h ago
+Firstmate's blocked-by logic does not see work outside its own tasks. Confirm with the captain before dispatching into 'project'.
+warning: /mnt/scratch/fm-cap-live.07x2yI/home/data/newtask/launch-brief.md records no ship branch; defaulting to legacy branch fm/newtask
+warning: /mnt/scratch/fm-cap-live.07x2yI/home/data/newtask/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: treehouse get did not enter an isolated worktree within 60s (last seen '/mnt/scratch/fm-cap-live.07x2yI/project': it is the spawning project itself; 
+/mnt/scratch/fm-cap-live.07x2yI
+
+scenario=live lab=/mnt/scratch/fm-cap-live.DXypos
+exit=0
+--- spawn output (head) ---
+deferred: project project admits 1 worker(s) at once on this machine (/mnt/scratch/fm-cap-live.DXypos/home/config/project-capacity) and 1 already hold a place (live-a); task newtask was not launched and its backlog item stays queued - dispatch it again once one of them records its ready PR, exits, or is cleaned up
+/mnt/scratch/fm-cap-live.DXypos
+
+scenario=locked lab=/mnt/scratch/fm-cap-live.DEjlHi
+exit=0
+--- spawn output (head) ---
+deferred: project project admits 1 worker(s) at once on this machine (/mnt/scratch/fm-cap-live.DEjlHi/home/config/project-capacity) and 1 already hold a place (park0); task newtask was not launched and its backlog item stays queued - dispatch it again once one of them records its ready PR, exits, or is cleaned up
+/mnt/scratch/fm-cap-live.DEjlHi
+
+scenario=unreachable lab=/mnt/scratch/fm-cap-live.mmMaqz
+exit=0
+--- spawn output (head) ---
+deferred: project project admits 1 worker(s) at once on this machine (/mnt/scratch/fm-cap-live.mmMaqz/home/config/project-capacity) and 2 already hold a place (down0, down1); task newtask was not launched and its backlog item stays queued - dispatch it again once one of them records its ready PR, exits, or is cleaned up
+/mnt/scratch/fm-cap-live.mmMaqz
+
+scenario=relaunch-free lab=/mnt/scratch/fm-cap-live.532jFV
+exit=1
+--- spawn output (head) ---
+WARNING: overlap risk in 'project' - another clone of the same repo has active local work:
+  /mnt/scratch/fm-cap-live.532jFV/wt-park5 [wt-park5]: last commit 0h ago
+  /mnt/scratch/fm-cap-live.532jFV/wt-park4 [wt-park4]: last commit 0h ago
+  /mnt/scratch/fm-cap-live.532jFV/wt-park3 [wt-park3]: last commit 0h ago
+  /mnt/scratch/fm-cap-live.532jFV/wt-park2 [wt-park2]: last commit 0h ago
+  /mnt/scratch/fm-cap-live.532jFV/wt-park1 [wt-park1]: last commit 0h ago
+  /mnt/scratch/fm-cap-live.532jFV/wt-park0 [wt-park0]: last commit 0h ago
+Firstmate's blocked-by logic does not see work outside its own tasks. Confirm with the captain before dispatching into 'project'.
+warning: /mnt/scratch/fm-cap-live.532jFV/home/data/park0/launch-brief.md records no ship branch; relaunching on the task's recorded branch wt-park0
+warning: /mnt/scratch/fm-cap-live.532jFV/home/data/park0/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+notice: park0 ships branch=wt-park0 while project registers the ship-branch prefix 'fm/' (branch fm/park0) - the task's branch and PR will read as f
+/mnt/scratch/fm-cap-live.532jFV
+
+scenario=relaunch-full lab=/mnt/scratch/fm-cap-live.kzyDec
+exit=75
+--- spawn output (head) ---
+deferred: project project admits 1 worker(s) at once on this machine (/mnt/scratch/fm-cap-live.kzyDec/home/config/project-capacity) and 1 live ones already hold a place (live-a); task park0 stays parked and was not relaunched - relaunch it again once one of them records its ready PR, exits, or is cleaned up
+/mnt/scratch/fm-cap-live.kzyDec
+
