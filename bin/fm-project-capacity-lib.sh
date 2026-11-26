@@ -41,14 +41,19 @@
 #   - names the same project identity, meaning its project resolves to the same
 #     shared project lock path (fm_treehouse_project_lock_path), which is keyed
 #     by the project's resolved origin, so workers in any clone of that origin
-#     are counted, and
+#     are counted,
 #   - has no recorded PR handoff: the pr= line bin/fm-pr-check.sh records when a
 #     worker's PR is ready, after which the worker waits on review or merge and
-#     no longer uses local resources.
-# A place therefore frees when a PR-based ship records its ready PR, or when any
-# task is cleaned up and its record removed. A local-only ship and a scout have
-# no recorded handoff and hold their place until cleanup. A worker that is
-# steered back into work after its PR handoff is not counted again.
+#     no longer uses local resources, and
+#   - has a live session, no endpoint, or an endpoint whose liveness cannot be
+#     proven absent. A parked lane, whose endpoint is proven gone or holds only
+#     a shell, holds no place unless a spawn or lifecycle action still holds its
+#     record or its control lock (fm_project_capacity_occupants).
+# A place therefore frees when a PR-based ship records its ready PR, when its
+# session exits, or when any task is cleaned up and its record removed. A
+# local-only ship and a scout hold their place while their session is live or a
+# spawn or lifecycle action holds them. A worker that is steered back into work
+# after its PR handoff is not counted again.
 # The declaration is matched by the spawning clone's directory name, so clones
 # of one origin share the cap only when they use that same directory name. A
 # clone of that origin under a different directory name finds no declaration
