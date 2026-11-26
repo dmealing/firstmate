@@ -9,7 +9,10 @@
 # markdown backlog when tasks-axi is installed. A deferred spawn is judged by
 # what it left behind - no task record, no rendered launch brief, no endpoint,
 # no worktree allocation, and a backlog item still queued - never by wording
-# alone.
+# alone. Only a lane with a live session holds a place: the fake tmux answers
+# the real liveness probe (bin/fm-backend.sh's fm_backend_agent_alive), so a
+# parked lane, a live lane, and a lane whose liveness cannot be read are each
+# driven through the real classifier.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -78,7 +81,24 @@ make_case() {  # <name> [task-id...]
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_FAKE_CALL_LOG"
 window_file="$FM_FAKE_CALL_LOG.window"
+shell_file="$FM_FAKE_CALL_LOG.shell"
 case "$*" in
+  *"#{pane_tty}"*) exit 0 ;;
+  *"#{pane_current_command}"*)
+    # A window listed in the shell file holds only a shell, so no agent runs.
+    target=
+    previous=
+    for arg in "$@"; do
+      [ "$previous" = -t ] && target=$arg
+      previous=$arg
+    done
+    if grep -Fqx -- "${target#*:}" "$shell_file" 2>/dev/null; then
+      printf 'bash\n'
+    else
+      printf 'codex\n'
+    fi
+    exit 0
+    ;;
   *"#{pane_current_path}"*)
     # A spawn that is told to hold waits here, after its capacity check and
     # while it still holds the project lock, until the test releases it.
@@ -97,7 +117,13 @@ case "$*" in
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n' ;;
-  list-windows) [ ! -s "$window_file" ] || cat "$window_file" ;;
+  list-windows)
+    # A session named unreadable-* cannot be read, as a transient tmux failure.
+    case "$*" in
+      *"-t unreadable-"*) echo "error: fake tmux read failure" >&2; exit 1 ;;
+    esac
+    [ ! -s "$window_file" ] || cat "$window_file"
+    ;;
   new-window)
     name=
     previous=
@@ -153,11 +179,23 @@ declare_capacity() {  # <home> <line>...
   printf '%s\n' "$@" > "$home/config/project-capacity"
 }
 
+# Register <id>'s window in the fake tmux, where an agent runs, so the real
+# liveness probe reads its lane as live.
+mark_live() {  # <case-dir> <id>
+  printf '%s\n' "fm-$2" >> "$1/calls.log.window"
+}
+
+# Park <id>: its window is still there but holds only a shell, so no agent runs.
+park_shell() {  # <case-dir> <id>
+  printf '%s\n' "fm-$2" >> "$1/calls.log.shell"
+}
+
 # A live worker already on a project: the record shape bin/fm-spawn.sh
 # publishes, with its backlog item In flight so cleanup can close it.
 write_live() {  # <home> <id> <project-dir> [extra-line...]
   local home=$1 id=$2 project=$3
   shift 3
+  mark_live "$(dirname "$home")" "$id"
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" \
     "endpoint_task_id=$id" \
@@ -206,7 +244,7 @@ assert_nothing_created() {  # <case-dir> <home> <id> <calls-before> <worktrees-b
   assert_absent "$home/data/$id/launch-brief.md" "a deferred spawn rendered a launch brief for $id"
   after=$(call_count "$case_dir")
   [ "$after" -eq "$before" ] ||
-    fail "a deferred spawn touched the terminal or worktree pool for $id: $(tail -n +"$((before + 1))" "$case_dir/calls.log")"
+    fail "a deferred spawn touched the terminal or worktree pool for $id: $(grep -vE '^(list-windows|display-message) ' "$case_dir/calls.log" | tail -n +"$((before + 1))")"
   assert_equals "$worktrees" "$(worktree_list "$case_dir")" "a deferred spawn left a git worktree for $id"
   if [ "$HAVE_TASKS_AXI" = 1 ]; then
     [ "$(row_state "$home" "$id")" = queued ] ||
@@ -214,7 +252,9 @@ assert_nothing_created() {  # <case-dir> <home> <id> <calls-before> <worktrees-b
   fi
 }
 
-call_count() { wc -l < "$1/calls.log" | tr -d ' '; }
+# The calls that change something. The read-only liveness probes admission now
+# makes against each holder's endpoint are not a touch of the terminal.
+call_count() { grep -cvE '^(list-windows|display-message) ' "$1/calls.log" || true; }
 
 worktree_list() { git -C "$1/project" worktree list --porcelain; }
 
@@ -402,6 +442,7 @@ test_occupancy_counts_only_this_projects_workers() {
   declare_capacity "$home" "project 3"
   write_live "$home" scout-a "$case_dir/project"
   sed -i.bak 's/^kind=ship$/kind=scout/' "$home/state/scout-a.meta" && rm -f "$home/state/scout-a.meta.bak"
+  mark_live "$case_dir" legacy-b
   fm_write_meta "$home/state/legacy-b.meta" "window=firstmate:fm-legacy-b" "project=$case_dir/project"
   write_live "$home" other-c "$case_dir/other-project"
   fm_write_meta "$home/state/mate-d.meta" "window=remote:mate-d" "project=$case_dir/project" "kind=secondmate"
@@ -649,6 +690,116 @@ SH
   pass "an Orca spawn takes the shared project lock whenever a same-origin clone is capped and defers before creating anything"
 }
 
+# A parked lane - no live session, only a saved branch and local copy - holds no
+# place: either its endpoint is gone or its window holds only a shell. Capacity
+# bounds live machine load, so it never blocks a spawn, and the deferral names
+# only the live lanes.
+test_parked_lanes_do_not_hold_a_place() {
+  local case_dir home out rc=0
+  case_dir=$(make_case parked task-c task-d)
+  home="$case_dir/home"
+  declare_capacity "$home" "project 1"
+  fm_write_meta "$home/state/gone-a.meta" \
+    "window=firstmate:fm-gone-a" "endpoint_task_id=gone-a" "project=$case_dir/project" "kind=ship"
+  mark_live "$case_dir" shell-b
+  park_shell "$case_dir" shell-b
+  fm_write_meta "$home/state/shell-b.meta" \
+    "window=firstmate:fm-shell-b" "endpoint_task_id=shell-b" "project=$case_dir/project" "kind=ship"
+  out=$(spawn_ship "$case_dir" task-c) || rc=$?
+  expect_code 0 "$rc" "parked lanes blocked a spawn: $out"
+  assert_not_contains "$out" "deferred:" "parked lanes held a place"
+  assert_present "$home/state/task-c.meta" "the spawn beside parked lanes published no record"
+  rc=0
+  out=$(spawn_ship "$case_dir" task-d "$case_dir/unused") || rc=$?
+  expect_code "$DEFER_EXIT" "$rc" "the live lane did not hold the only place: $out"
+  assert_contains "$out" "1 already hold a place (task-c)" "the deferral did not name only the live lane"
+  assert_not_contains "$out" "gone-a" "a parked lane was named as a holder"
+  assert_not_contains "$out" "shell-b" "a shell-only lane was named as a holder"
+  pass "exited lanes do not block a spawn while a live lane still does"
+}
+
+# A lane whose liveness cannot be read is not proven parked, so it keeps its
+# place rather than letting the machine go over its limit.
+test_unknown_liveness_still_holds_a_place() {
+  local case_dir home out rc=0
+  case_dir=$(make_case unknown task-c)
+  home="$case_dir/home"
+  declare_capacity "$home" "project 1"
+  fm_write_meta "$home/state/unsure-a.meta" \
+    "window=unreadable-s:fm-unsure-a" "endpoint_task_id=unsure-a" "project=$case_dir/project" "kind=ship"
+  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
+  expect_code "$DEFER_EXIT" "$rc" "a lane with unreadable liveness was treated as parked: $out"
+  assert_contains "$out" "1 already hold a place (unsure-a)" "the unreadable lane was not counted"
+  assert_absent "$home/state/task-c.meta" "a spawn published past a lane of unknown liveness"
+  pass "a lane whose liveness cannot be determined still holds its place"
+}
+
+# A parked lane that goes live again takes a place: its relaunch passes the same
+# admission, is refused (exit 75, lane left parked) when live lanes fill the
+# project, and is admitted when there is room.
+write_parked() {  # <case-dir> <home> <id>
+  local case_dir=$1 home=$2 id=$3 wt
+  wt=$(new_worktree "$case_dir" "$id")
+  mark_live "$case_dir" "$id"
+  park_shell "$case_dir" "$id"
+  write_brief "$home" "$id"
+  fm_write_meta "$home/state/$id.meta" \
+    "window=firstmate:fm-$id" \
+    "endpoint_task_id=$id" \
+    "worktree=$wt" \
+    "project=$case_dir/project" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
+    "branch=wt-$id" \
+    "spawn_gen=s-$id"
+  if [ "$HAVE_TASKS_AXI" = 1 ]; then
+    add_item "$home" "$id"
+    tasks-axi start "$id" --file "$home/data/backlog.md" >/dev/null
+  fi
+}
+
+test_relaunch_of_a_parked_lane_takes_a_place() {
+  local case_dir home out rc=0 before
+  case_dir=$(make_case relaunch)
+  home="$case_dir/home"
+  declare_capacity "$home" "project 1"
+  write_live "$home" live-a "$case_dir/project"
+  write_parked "$case_dir" "$home" parked-b
+  before=$(cat "$home/state/parked-b.meta")
+  out=$(run_spawn "$case_dir" "$home" "" parked-b --relaunch) || rc=$?
+  expect_code "$DEFER_EXIT" "$rc" "a relaunch beside a full set of live lanes was not deferred: $out"
+  assert_contains "$out" "deferred:" "the refused relaunch printed no deferral"
+  assert_contains "$out" "(live-a)" "the refused relaunch did not name the live lane"
+  assert_equals "$before" "$(cat "$home/state/parked-b.meta")" "a refused relaunch changed the parked lane's record"
+  assert_no_grep "send-keys" "$case_dir/calls.log" "a refused relaunch typed into the parked lane's endpoint"
+
+  # The live lane records its ready PR, which frees its place: the relaunch fits.
+  printf 'pr=%s\n' "https://github.com/o/r/pull/9" >> "$home/state/live-a.meta"
+  rc=0
+  out=$(run_spawn "$case_dir" "$home" "$case_dir/wt-parked-b" parked-b --relaunch) || rc=$?
+  assert_not_contains "$out" "deferred:" "a relaunch with room was deferred: $out"
+  expect_code 0 "$rc" "a relaunch with room did not complete: $out"
+  [ "$rc" -ne "$DEFER_EXIT" ] || fail "a relaunch with room exited with the deferral code: $out"
+  pass "a relaunch of a parked lane is refused when live lanes fill the capacity and admitted when there is room"
+}
+
+# Only bin/fm-control.sh's own relaunch of a lane that was alive skips the
+# count. The same variable from any other caller is ignored, so a parked lane
+# cannot claim a place it does not hold.
+test_place_held_claim_from_a_direct_relaunch_is_ignored() {
+  local case_dir home out rc=0
+  case_dir=$(make_case relaunch-claim)
+  home="$case_dir/home"
+  declare_capacity "$home" "project 1"
+  write_live "$home" live-a "$case_dir/project"
+  write_parked "$case_dir" "$home" held-b
+  out=$(FM_CONTROL_RELAUNCH_PLACE_HELD=1 run_spawn "$case_dir" "$home" "" held-b --relaunch) || rc=$?
+  expect_code "$DEFER_EXIT" "$rc" "a direct relaunch claimed a held place it does not have: $out"
+  pass "a direct relaunch cannot claim the place only the control plane's relaunch of a live lane keeps"
+}
+
 test_undeclared_capacity_keeps_dispatch_uncapped
 test_available_capacity_admits_the_worker
 test_exhausted_capacity_defers_without_leaving_anything_behind
@@ -665,3 +816,7 @@ test_failed_spawn_after_admission_holds_no_place
 test_unreadable_declaration_refuses_every_spawn
 test_batch_reports_a_deferred_pair
 test_orca_spawn_is_admitted_under_the_shared_project_lock
+test_parked_lanes_do_not_hold_a_place
+test_unknown_liveness_still_holds_a_place
+test_relaunch_of_a_parked_lane_takes_a_place
+test_place_held_claim_from_a_direct_relaunch_is_ignored

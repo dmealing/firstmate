@@ -58,6 +58,11 @@
 # no place. Remote homes are never walked, because their workers run on another
 # machine.
 #
+# A relaunch of a lane that was already parked is admitted like a fresh spawn,
+# against the live lanes other than itself. A relaunch of a lane whose agent was
+# alive until bin/fm-control.sh stopped it to replace it keeps the place it
+# held, so it is not refused after its agent was stopped.
+#
 # Race safety: bin/fm-spawn.sh evaluates admission while holding the shared
 # project lock and keeps holding it until the new task record is published, so
 # two concurrent spawns for one project can never both publish from the same
@@ -69,7 +74,7 @@
 #
 # Requires bin/fm-wake-lib.sh (root home, local homes, project lock path),
 # bin/fm-secondmate-registry-lib.sh (which the local-homes walk reads), and
-# bin/fm-backend.sh (fm_meta_get) to be sourced first. No side effects on source.
+# bin/fm-backend.sh (fm_meta_get, fm_backend_agent_alive) to be sourced first. No side effects on source.
 
 # Exit status of a spawn deferred because the project is at capacity: the
 # sysexits "temporary failure" code, so a caller can tell a deferral that leaves
@@ -161,7 +166,8 @@ fm_project_capacity_lookup() {  # <config-dir> <project-name>
   return 0
 }
 
-# Count the task records holding a place in one project's capacity.
+# Count the task records holding a place in one project's capacity. A matching
+# record whose endpoint has no live session is a parked lane and is not counted.
 # <project-lock> is fm_treehouse_project_lock_path for the project being
 # admitted, and <project-dir> is that project's own directory, which matches
 # without recomputing its identity. The local homes come from
@@ -170,15 +176,18 @@ fm_project_capacity_lookup() {  # <config-dir> <project-name>
 # it is not counted.
 # Sets FM_PROJECT_CAPACITY_OCCUPANTS to the count and
 # FM_PROJECT_CAPACITY_OCCUPANT_IDS to a comma-separated list of the holders,
-# each outside <first-state> qualified with its home. Returns 1 with
+# each outside <first-state> qualified with its home, and
+# FM_PROJECT_CAPACITY_PARKED to how many parked lanes were skipped. Returns 1 with
 # FM_PROJECT_CAPACITY_ERROR when the local homes cannot be enumerated, or when
 # a state directory or task record in them cannot be read, since skipping it
 # could undercount the holders.
 fm_project_capacity_occupants() {  # <project-lock> <project-dir> <first-state> <own-id>
   local want=$1 own=$2 first=$3 self=$4 state meta kind project lock id label i
+  local backend target
   local -a cache_dirs cache_locks
   FM_PROJECT_CAPACITY_OCCUPANTS=0
   FM_PROJECT_CAPACITY_OCCUPANT_IDS=
+  FM_PROJECT_CAPACITY_PARKED=0
   FM_PROJECT_CAPACITY_ERROR=
   fm_local_firstmate_state_dirs "$first" || {
     FM_PROJECT_CAPACITY_ERROR=$FM_LOCAL_FIRSTMATE_ERROR
@@ -218,6 +227,14 @@ fm_project_capacity_occupants() {  # <project-lock> <project-dir> <first-state> 
         cache_locks+=("$lock")
       fi
       [ -n "$lock" ] && [ "$lock" = "$want" ] || continue
+      # Only a live session loads the machine. A record with no endpoint, or one
+      # whose liveness is unknown, still holds its place.
+      backend=$(fm_backend_of_meta "$meta")
+      target=$(fm_backend_target_of_meta "$meta")
+      if [ -n "$target" ] && [ "$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null)" = dead ]; then
+        FM_PROJECT_CAPACITY_PARKED=$((FM_PROJECT_CAPACITY_PARKED + 1))
+        continue
+      fi
       id=$(basename "$meta" .meta)
       label=$id
       [ "$state" = "$first" ] || label="$id in $(dirname "$state")"

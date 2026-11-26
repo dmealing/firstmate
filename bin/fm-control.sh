@@ -1288,7 +1288,16 @@ do_relaunch() {
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
   [ -z "$TARGET_ACCOUNT" ] || spawn_args+=(--account "$TARGET_ACCOUNT")
-  if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
+  # A lane whose agent was alive until the exit above already holds a project
+  # capacity place (bin/fm-project-capacity-lib.sh), so its replacement is not
+  # counted against the limit again; a lane that was already parked takes a
+  # place as it goes live and passes admission in bin/fm-spawn.sh.
+  relaunch_place_held=0
+  case "$exit_result" in
+    already-stopped | endpoint-gone) ;;
+    *) relaunch_place_held=1 ;;
+  esac
+  if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" FM_CONTROL_RELAUNCH_PLACE_HELD="$relaunch_place_held" \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1
     # $T was resolved from the record before the launch. When the recorded
