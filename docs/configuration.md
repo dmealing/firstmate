@@ -797,7 +797,7 @@ Only author-actionable states, conflicts, and failing checks print; the maintain
 Reads are driven by the GitHub notifications feed: each pass makes one conditional read of it, which GitHub answers with an uncounted 304 while nothing changed, and reads only the owned PRs with new notification activity, PRs not yet read, and PRs whose last read did not settle.
 Every owned PR is still read when the feed is unavailable or returns a full page of notifications newer than the saved position, and at least every 15 minutes as the fallback sweep, because some conditions, such as a base branch moving into conflict or a check from another app failing, raise no notification.
 Its reads respect the machine-wide GitHub poll back-off in [`bin/fm-gh-budget-lib.sh`](../bin/fm-gh-budget-lib.sh): a refused read leaves the PR for a later pass without a wake.
-The branch lookup that finds a live task's open pull request (`gh-axi pr list`) is not refused.
+The branch lookup that finds a live task's open pull request number (`gh-axi pr list`) is not refused; the `gh pr view` read that then resolves its URL is, so a branch pull request is enrolled on a later pass.
 GitLab merge requests are not monitored yet.
 When no reported check is marked required, a failing reported check still counts, matching `bin/fm-pr-state.sh` for unprotected stacked bases.
 When a required check has reported, optional failures do not notify.
