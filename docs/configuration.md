@@ -1868,7 +1868,8 @@ A place is held by every ship or scout with a live session on that project in th
 Capacity bounds live machine load, so a parked lane, whose session has exited and which keeps only its saved branch and local copy, holds no place and never blocks a new worker.
 A lane whose session cannot be proven absent still holds its place, so an uncertain read never lets the machine go over its limit.
 A lane whose task record is locked by a spawn or lifecycle action in progress, such as a launch that has not reached its session yet, and a lane that `bin/fm-control.sh relaunch` is replacing while it holds the lane's control lock also keep their place.
-A tmux lane whose tmux server cannot be reached is not proven absent, so it also keeps its place.
+A tmux lane whose tmux server cannot be reached, such as a permission error, is not proven absent, so it also keeps its place.
+A tmux server that reports `no server running`, or whose socket file is absent (`error connecting to <socket> (No such file or directory)`), has no sessions at all, which is the usual parked state because the server exits when its last session closes, so a lane on it is parked and holds no place.
 A parked lane takes a place again when it goes live: `bin/fm-spawn.sh --relaunch` runs the same admission as a fresh worker and, when live lanes already fill the project, prints one `deferred:` line, exits 75, and leaves the lane parked.
 `bin/fm-control.sh relaunch` of a lane whose agent was alive is not counted a second time, because that lane already held its place; its relaunch of a lane that was already parked passes the admission, and a deferral there also prints a `deferred:` line, exits 75, and leaves the lane parked.
 The declaration is matched by the spawning clone's directory name, so clones of the same origin share the cap only when they use that same directory name.

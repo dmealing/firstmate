@@ -85,7 +85,14 @@ shell_file="$FM_FAKE_CALL_LOG.shell"
 # While the no-server marker exists, the tmux server cannot be reached.
 if [ -e "$FM_FAKE_CALL_LOG.noserver" ]; then
   case "${1:-}" in
-    list-windows|list-sessions) echo "no server running on /tmp/fake-tmux/default" >&2; exit 1 ;;
+    list-windows|list-sessions)
+      if [ -s "$FM_FAKE_CALL_LOG.noserver" ]; then
+        cat "$FM_FAKE_CALL_LOG.noserver" >&2
+      else
+        echo "no server running on /tmp/fake-tmux/default" >&2
+      fi
+      exit 1
+      ;;
   esac
 fi
 case "$*" in
@@ -774,26 +781,54 @@ test_starting_and_replaced_lanes_keep_their_place() {
   pass "a lane with a locked task record and a lane under control relaunch keep their place"
 }
 
-# A tmux server that cannot be reached says nothing about a lane's window, so
-# the lane is not proven parked and keeps its place. Once the server answers
-# and the window is absent, the lane is parked.
+# A tmux server that cannot be reached for a real reason says nothing about a
+# lane's window, so the lane is not proven parked and keeps its place. Once the
+# server answers and the window is absent, the lane is parked.
 test_unreachable_tmux_server_still_holds_a_place() {
-  local case_dir home out rc=0
+  local case_dir home out rc=0 err
   case_dir=$(make_case noserver task-c)
   home="$case_dir/home"
   declare_capacity "$home" "project 1"
   fm_write_meta "$home/state/down-a.meta" \
     "window=firstmate:fm-down-a" "endpoint_task_id=down-a" "project=$case_dir/project" "kind=ship"
-  : > "$case_dir/calls.log.noserver"
-  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
-  expect_code "$DEFER_EXIT" "$rc" "a lane on an unreachable tmux server was treated as parked: $out"
-  assert_contains "$out" "1 already hold a place (down-a)" "the lane on the unreachable server was not counted"
-  assert_absent "$home/state/task-c.meta" "a spawn published past a lane on an unreachable tmux server"
+  for err in "error connecting to /tmp/fake-tmux/default (Operation not permitted)" \
+    "error connecting to /tmp/fake-tmux/default (Permission denied)"; do
+    printf '%s\n' "$err" > "$case_dir/calls.log.noserver"
+    rc=0
+    out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
+    expect_code "$DEFER_EXIT" "$rc" "a lane on an unreachable tmux server was treated as parked ($err): $out"
+    assert_contains "$out" "1 already hold a place (down-a)" "the lane on the unreachable server was not counted ($err)"
+    assert_absent "$home/state/task-c.meta" "a spawn published past a lane on an unreachable tmux server"
+  done
   rm -f "$case_dir/calls.log.noserver"
   rc=0
   out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code 0 "$rc" "a lane whose window is absent on a reachable server still blocked: $out"
   pass "a lane on an unreachable tmux server still holds its place"
+}
+
+# No tmux server running means no sessions exist, the usual parked state on tmux.
+# A missing socket file means the same: the server exited and its socket is gone.
+# Either way the lane is parked, so admission passes and the spawn reaches its
+# launch, which records a new-window call on the fake tmux.
+test_no_tmux_server_reads_parked() {
+  local case_dir home out rc gone n=0
+  for gone in "no server running on /tmp/fake-tmux/default" \
+    "error connecting to /tmp/fake-tmux/default (No such file or directory)"; do
+    n=$((n + 1))
+    case_dir=$(make_case "nosrv-$n" task-c)
+    home="$case_dir/home"
+    declare_capacity "$home" "project 1"
+    fm_write_meta "$home/state/down-a.meta" \
+      "window=firstmate:fm-down-a" "endpoint_task_id=down-a" "project=$case_dir/project" "kind=ship"
+    printf '%s\n' "$gone" > "$case_dir/calls.log.noserver"
+    rc=0
+    out=$(spawn_ship "$case_dir" task-c) || rc=$?
+    [ "$rc" -ne "$DEFER_EXIT" ] || fail "a lane on a tmux server that is gone still blocked a spawn ($gone): $out"
+    assert_not_contains "$out" "already hold a place" "the lane on a tmux server that is gone was counted ($gone)"
+    assert_grep "-n fm-task-c" "$case_dir/calls.log" "the spawn did not reach its launch past a tmux server that is gone ($gone): $out"
+  done
+  pass "a lane on a tmux server with no server running or a missing socket file is parked"
 }
 
 # A parked lane that goes live again takes a place: its relaunch passes the same
@@ -882,5 +917,6 @@ test_parked_lanes_do_not_hold_a_place
 test_starting_and_replaced_lanes_keep_their_place
 test_unknown_liveness_still_holds_a_place
 test_unreachable_tmux_server_still_holds_a_place
+test_no_tmux_server_reads_parked
 test_relaunch_of_a_parked_lane_takes_a_place
 test_place_held_claim_from_a_direct_relaunch_is_ignored

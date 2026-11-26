@@ -182,14 +182,29 @@ fm_project_capacity_lock_held() {  # <lockdir>
   fm_lock_holder_alive "$1" "$pid"
 }
 
+# Returns 0 when tmux answers with its sessions, or when the server is gone: tmux
+# says no server is running, or its socket file is absent. Any other error
+# returns 1. See fm_project_capacity_lane_parked for how the verdict is used.
+fm_project_capacity_tmux_gone_or_answering() {
+  local out
+  out=$(LC_ALL=C tmux list-sessions 2>&1) && return 0
+  case "$out" in
+    *"no server running on "*|*"error connecting to "*" (No such file or directory)") return 0 ;;
+  esac
+  return 1
+}
+
 # Whether the probe proves <target>'s agent gone on a reachable backend. A tmux
 # endpoint reads missing also when the tmux server cannot be reached, which
 # proves nothing about the window, so missing counts as gone only while that
-# server answers.
+# server answers, or when tmux says definitively that no server is running or its
+# socket file is absent: a server exits when its last session closes, so that is
+# the usual parked state and no session exists. Any other server error, such as a
+# permission error, still proves nothing and the lane keeps its place.
 fm_project_capacity_lane_parked() {  # <backend> <target>
   case "$(fm_backend_agent_state "$1" "$2" 2>/dev/null)" in
     dead) return 0 ;;
-    missing) [ "$1" != tmux ] || LC_ALL=C tmux list-sessions >/dev/null 2>&1 ;;
+    missing) [ "$1" != tmux ] || fm_project_capacity_tmux_gone_or_answering ;;
     *) return 1 ;;
   esac
 }
