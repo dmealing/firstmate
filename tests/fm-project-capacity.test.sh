@@ -737,7 +737,8 @@ test_unknown_liveness_still_holds_a_place() {
 
 # A record published moments ago whose launch has not reached its endpoint yet
 # reads dead but is a lane starting up, and a lane that bin/fm-control.sh is
-# replacing is between agents; both keep their place.
+# replacing is between agents while it holds the lane's control lock; both keep
+# their place. Once the transaction ends, the journal it leaves behind does not.
 test_starting_and_replaced_lanes_keep_their_place() {
   local case_dir home out rc=0
   case_dir=$(make_case starting task-c)
@@ -751,14 +752,17 @@ test_starting_and_replaced_lanes_keep_their_place() {
   expect_code "$DEFER_EXIT" "$rc" "a just-published lane was treated as parked: $out"
   assert_contains "$out" "(fresh-a)" "the starting lane was not counted"
   touch -d '1 hour ago' "$home/state/fresh-a.meta"
-  : > "$home/state/fresh-a.control-relaunch"
+  # A lane relaunched before keeps the journal of its finished transaction.
+  printf 'v1\ntask=fresh-a\nphase=complete\n' > "$home/state/fresh-a.control-relaunch"
+  mkdir "$home/state/.control-fresh-a.lock"
+  printf '%s\n' "$$" > "$home/state/.control-fresh-a.lock/pid"
   rc=0
   out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
   expect_code "$DEFER_EXIT" "$rc" "a lane under control relaunch was treated as parked: $out"
-  rm -f "$home/state/fresh-a.control-relaunch"
+  rm -rf "$home/state/.control-fresh-a.lock"
   rc=0
   out=$(spawn_ship "$case_dir" task-c) || rc=$?
-  expect_code 0 "$rc" "a parked lane still blocked once settled: $out"
+  expect_code 0 "$rc" "a parked lane with only a finished relaunch journal still blocked: $out"
   pass "a just-published lane and a lane under control relaunch keep their place"
 }
 

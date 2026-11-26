@@ -745,6 +745,28 @@ test_relaunch_note_inbox_listing_is_safe_on_empty_inbox() {
   pass "fm-control relaunch: the progress note's inbox listing is silent on an empty inbox"
 }
 
+# A parked lane takes a project capacity place again when it goes live, so
+# when another lane already fills the project the replacement is deferred: the
+# relaunch exits with fm-spawn's deferral code 75 (bin/fm-project-capacity-lib.sh),
+# not a launch failure, and nothing is launched into the parked endpoint.
+test_relaunch_of_a_parked_lane_is_deferred_at_capacity() {
+  local dir out rc
+  dir=$(new_case parked-cap rl-cap)
+  add_ship_task "$dir" rl-cap
+  printf 'zsh' > "$dir/fake/command"
+  mkdir -p "$dir/home/config"
+  printf 'proj 1\n' > "$dir/home/config/project-capacity"
+  printf 'project=%s\nkind=ship\n' "$dir/proj" > "$dir/home/state/holder.meta"
+  out=$(run_control "$dir" rl-cap relaunch --note "resume the parked work"); rc=$?
+  expect_code 75 "$rc" "a parked relaunch at capacity should exit with the deferral code"$'\n'"$out"
+  assert_contains "$out" "deferred:" "the deferred relaunch should say it was deferred"
+  assert_not_contains "$out" "could not be launched" "a deferral is not a launch failure"
+  [ "$(journal_field "$dir" rl-cap rollback)" = deferred-at-capacity ] \
+    || fail "the journal should record the deferral, got '$(journal_field "$dir" rl-cap rollback)'"
+  assert_no_grep "Firstmate operational input waiting: read" "$dir/fake/literal" "a deferred relaunch launched a replacement"
+  pass "fm-control relaunch: a parked lane's relaunch at capacity is deferred with exit 75"
+}
+
 test_relaunch_requires_a_note_for_a_ship_task() {
   local dir out rc before
   dir=$(new_case nonote rl3)
@@ -3300,6 +3322,7 @@ test_disabled_relaunch_clears_prior_trace_context
 test_relaunch_appends_the_progress_note_to_the_instructions
 test_relaunch_note_inbox_listing_is_safe_on_empty_inbox
 test_relaunch_requires_a_note_for_a_ship_task
+test_relaunch_of_a_parked_lane_is_deferred_at_capacity
 test_harness_switch_moves_the_record_and_clears_prior_wiring
 test_refused_relaunch_onto_polytoken_keeps_the_project_hook_layer
 test_refused_polytoken_profile_leaves_the_running_agent

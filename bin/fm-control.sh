@@ -107,7 +107,10 @@
 #              bin/fm-spawn.sh --relaunch. A failure before publication keeps
 #              the prior durable record in place and reports the concrete
 #              state; it never leaves a half-transitioned task claiming to be
-#              running.
+#              running. A lane that was already parked takes a project
+#              capacity place again (bin/fm-project-capacity-lib.sh); when
+#              live lanes fill it, the launch is deferred, the lane stays
+#              parked, and relaunch exits 75.
 #              A secondmate relaunch holds that mate's liveness lock
 #              (bin/fm-secondmate-liveness-lib.sh) for the whole transaction,
 #              and refuses before anything is touched while a liveness episode
@@ -204,6 +207,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-project-capacity-lib.sh
+. "$SCRIPT_DIR/fm-project-capacity-lib.sh"
 # shellcheck source=bin/fm-worker-account-lib.sh
 . "$SCRIPT_DIR/fm-worker-account-lib.sh"
 # shellcheck source=bin/fm-omp-profile-lib.sh
@@ -1226,7 +1231,7 @@ record_note() {
 }
 
 do_relaunch() {
-  local exit_result state note_line
+  local exit_result state note_line spawn_status relaunch_place_held
   local -a spawn_args
 
   require_state_verified_backend relaunch
@@ -1318,8 +1323,15 @@ do_relaunch() {
       die "the replacement agent for $ID was launched, but task $ID's republished record no longer passes endpoint validation (the refusal above names the row), so this transaction cannot say which endpoint to confirm it on; reconcile $META before any further control action"
     fi
   else
+    spawn_status=$?
     [ "$(fm_meta_get "$META" control_relaunch_tx)" != "$RELAUNCH_TX" ] \
       || RELAUNCH_META_PUBLISHED=1
+    if [ "$spawn_status" -eq "$FM_PROJECT_CAPACITY_DEFER_EXIT" ] && [ "$RELAUNCH_META_PUBLISHED" = 0 ]; then
+      journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "$note_line" "rollback=deferred-at-capacity" || true
+      RELAUNCH_ACTIVE=0
+      echo "deferred: relaunch of $ID waits for a free place in its project's capacity; no agent is running, and its work plus the recorded progress note are preserved at $WT" >&2
+      exit "$FM_PROJECT_CAPACITY_DEFER_EXIT"
+    fi
     die "the replacement agent for $ID could not be launched on $TARGET_HARNESS"
   fi
 

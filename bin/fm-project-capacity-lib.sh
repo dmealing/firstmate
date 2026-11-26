@@ -72,7 +72,7 @@
 # place needs no lock, because removing a record or adding pr= only ever lowers
 # the count.
 #
-# Requires bin/fm-wake-lib.sh (root home, local homes, project lock path),
+# Requires bin/fm-wake-lib.sh (root home, local homes, project lock path, lock holder),
 # bin/fm-secondmate-registry-lib.sh (which the local-homes walk reads), and
 # bin/fm-backend.sh (fm_meta_get, fm_backend_agent_alive) to be sourced first. No side effects on source.
 
@@ -166,16 +166,23 @@ fm_project_capacity_lookup() {  # <config-dir> <project-name>
   return 0
 }
 
-# Whether <meta> was written within FM_PROJECT_CAPACITY_LAUNCH_GRACE_SECS
-# (default 120): a spawn publishes its record and releases the project lock
-# before the launch command reaches the endpoint, so a brand-new lane reads
-# dead for a moment without being parked.
+# Whether <meta> was written within the last 120 seconds: a spawn publishes its
+# record and releases the project lock before the launch command reaches the
+# endpoint, so a brand-new lane reads dead for a moment without being parked.
 fm_project_capacity_record_fresh() {  # <meta-file>
-  local grace=${FM_PROJECT_CAPACITY_LAUNCH_GRACE_SECS:-120} mtime now
-  case "$grace" in '' | *[!0-9]*) grace=120 ;; esac
+  local mtime now
   mtime=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null) || return 1
   now=$(date +%s)
-  [ $((now - mtime)) -lt "$grace" ]
+  [ $((now - mtime)) -lt 120 ]
+}
+
+# Whether a live process holds <state>/.control-<id>.lock, the per-task lock a
+# lifecycle action such as bin/fm-control.sh relaunch holds for its whole
+# transaction.
+fm_project_capacity_control_held() {  # <state-dir> <id>
+  local ctl="$1/.control-$2.lock" pid
+  pid=$(cat "$ctl/pid" 2>/dev/null) || return 1
+  fm_lock_holder_alive "$ctl" "$pid"
 }
 
 # Count the task records holding a place in one project's capacity. A matching
@@ -188,8 +195,7 @@ fm_project_capacity_record_fresh() {  # <meta-file>
 # it is not counted.
 # Sets FM_PROJECT_CAPACITY_OCCUPANTS to the count and
 # FM_PROJECT_CAPACITY_OCCUPANT_IDS to a comma-separated list of the holders,
-# each outside <first-state> qualified with its home, and
-# FM_PROJECT_CAPACITY_PARKED to how many parked lanes were skipped. Returns 1 with
+# each outside <first-state> qualified with its home. Returns 1 with
 # FM_PROJECT_CAPACITY_ERROR when the local homes cannot be enumerated, or when
 # a state directory or task record in them cannot be read, since skipping it
 # could undercount the holders.
@@ -199,7 +205,6 @@ fm_project_capacity_occupants() {  # <project-lock> <project-dir> <first-state> 
   local -a cache_dirs cache_locks
   FM_PROJECT_CAPACITY_OCCUPANTS=0
   FM_PROJECT_CAPACITY_OCCUPANT_IDS=
-  FM_PROJECT_CAPACITY_PARKED=0
   FM_PROJECT_CAPACITY_ERROR=
   fm_local_firstmate_state_dirs "$first" || {
     FM_PROJECT_CAPACITY_ERROR=$FM_LOCAL_FIRSTMATE_ERROR
@@ -243,18 +248,18 @@ fm_project_capacity_occupants() {  # <project-lock> <project-dir> <first-state> 
       # whose liveness is unknown, still holds its place.
       backend=$(fm_backend_of_meta "$meta")
       target=$(fm_backend_target_of_meta "$meta")
+      id=$(basename "$meta" .meta)
       # A record published a moment ago may still be waiting for its launch
       # command to reach the endpoint, and a lane being replaced by
       # bin/fm-control.sh relaunch reads dead between its stop and its new
-      # agent; both keep their place.
+      # agent while that transaction holds the lane's control lock; both keep
+      # their place.
       if [ -n "$target" ] &&
-        [ ! -e "$state/$(basename "$meta" .meta).control-relaunch" ] &&
+        ! fm_project_capacity_control_held "$state" "$id" &&
         ! fm_project_capacity_record_fresh "$meta" &&
         [ "$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null)" = dead ]; then
-        FM_PROJECT_CAPACITY_PARKED=$((FM_PROJECT_CAPACITY_PARKED + 1))
         continue
       fi
-      id=$(basename "$meta" .meta)
       label=$id
       [ "$state" = "$first" ] || label="$id in $(dirname "$state")"
       FM_PROJECT_CAPACITY_OCCUPANTS=$((FM_PROJECT_CAPACITY_OCCUPANTS + 1))
