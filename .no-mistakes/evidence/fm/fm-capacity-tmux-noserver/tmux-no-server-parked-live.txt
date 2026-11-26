@@ -1,0 +1,11 @@
+Live drive: real tmux 3.2a, real bin/fm-backend.sh + bin/fm-project-capacity-lib.sh
+(fm_project_capacity_lane_parked tmux firstmate:fm-down-a), private TMUX_TMPDIR per case.
+base = 5b734ab (before), new = 813073c (target).
+
+case                                           raw tmux list-sessions                                          new PARKED  base PARKED
+A no socket file                               error connecting to .../default (No such file or directory)     yes         no
+B stale socket (server SIGKILLed)              no server running on .../default                                yes         no
+C live server, window absent                   firstmate: 1 windows                                            yes         yes
+D live server, target window present           firstmate: 2 windows (agent_state ambiguous)                    no          -
+E socket path is a regular file                directory .../tmux-1000 has unsafe permissions                  no          -
+F socket dir chmod 000                         error connecting to .../default (Permission denied)             no          -
