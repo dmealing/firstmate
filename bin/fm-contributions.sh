@@ -84,7 +84,9 @@
 # this pass when it is spent. Every REST read is conditional: it sends the
 # ETag the cache holds for the same request, from any home, and a 304 reuses
 # the cached body at no rate-limit cost, except that a pull whose mergeability
-# GitHub is still computing is not cached, so its next read is unconditional.
+# GitHub is still computing and a list page holding a full page of items are
+# not cached, so the next read is unconditional: GitHub's ETag covers one
+# page's body, which stays the same while the list grows behind a full page.
 # A list longer than one page is read in full without the cache. A recorded
 # URL is next read at checked_at plus 1/24 of how long it had been quiet (since
 # its forge updated_at) when checked, at most a day, and a poll skips it until
@@ -460,8 +462,11 @@ forge_not_modified() { # forge-output-file: an --include response with status 30
 
 cforge() { # endpoint object|list: one conditional REST read through the fleet cache
   # Prints the body; a list prints as one page array, the shape --paginate
-  # --slurp gives. A list longer than one page is read in full, uncached.
-  local endpoint=$1 shape=$2 raw head body etag cached tag
+  # --slurp gives. A list longer than one page is read in full, uncached. A
+  # full page is not cached either: the list can grow behind it without
+  # changing its body.
+  local endpoint=$1 shape=$2 raw head body etag cached tag page_size
+  case "$endpoint" in *per_page=*) page_size=${endpoint##*per_page=}; page_size=${page_size%%&*} ;; *) page_size=30 ;; esac # 30: GitHub's default page
   raw=$(mktemp "$TMP/cforge-raw.XXXXXX"); head="$raw.head"; body="$raw.body"; cached="$raw.cached"
   if fm_gh_cache_get "api $endpoint" etag "$cached"; then
     forge api --include -H "If-None-Match: $etag" "$endpoint" > "$raw" || { rm -f -- "$raw" "$cached"; return 1; }
@@ -478,7 +483,9 @@ cforge() { # endpoint object|list: one conditional REST read through the fleet c
       return
     fi
     tag=$(fm_gh_header "$head" ETag | tr -d '\r')
-    if [ "$shape" != object ] || ! jq -e 'has("mergeable") and .mergeable == null' "$body" >/dev/null 2>&1; then
+    if [ "$shape" = object ]; then
+      jq -e 'has("mergeable") and .mergeable == null' "$body" >/dev/null 2>&1 || fm_gh_cache_put "api $endpoint" "$tag" "$body"
+    elif jq -e --argjson size "$page_size" '(if type == "array" then length elif has("check_runs") then (.check_runs | length) else $size end) < $size' "$body" >/dev/null 2>&1; then
       fm_gh_cache_put "api $endpoint" "$tag" "$body"
     fi
   else
@@ -512,6 +519,12 @@ observe() { # canonical GitHub URL -> normalized JSON
   case "$kind" in pull) endpoint="repos/$part/pulls/$number" ;; issues) endpoint="repos/$part/issues/$number" ;; *) return 1 ;; esac
   rm -f -- "$TMP/budget-exhausted" "$TMP/forge-unavailable" "$TMP/why"
   BUDGET_EXHAUSTED=0
+  # A pull observation closes with a GraphQL head read, so a refused GraphQL
+  # budget refuses the whole observation before any REST read is spent.
+  if [ "$kind" = pull ] && ! fm_gh_budget_admit graphql; then
+    forge_bound_result 0 '' 1
+    return 1
+  fi
   FORGE_ERR="$TMP/core.err" cforge "$endpoint" object > "$TMP/core.json" || return 1
   jq -e '(.state == "open" or .state == "closed") and (.user.login | type == "string")' "$TMP/core.json" >/dev/null \
     || unobserved 'core read returned an unexpected shape' || return 1

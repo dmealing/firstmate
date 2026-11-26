@@ -218,6 +218,25 @@ test_fleet_backoff_defers_reads_without_waking() {
   pass 'a fleet rate-limit back-off defers PR reads without a wake'
 }
 
+test_backoff_on_either_resource_makes_no_pr_read() {
+  local home resource
+  home=$(new_home resource-backoff)
+  task "$home" ship1 pr=https://github.com/o/r/pull/8
+  pr "$home" 8 "$HEAD_A" "$BASE_1" false false
+  arm "$home"
+  mkdir -p "$home/gh-state"
+  for resource in core graphql; do
+    printf '%s\n' "$(( $(date +%s) + 600 ))" > "$home/gh-state/backoff-$resource"
+    : > "$home/forge/calls.log"
+    expect_silent "$home" "a pass under a $resource back-off must not wake"
+    ! grep -Eq 'repos/o/r/pulls/8|number=8' "$home/forge/calls.log" \
+      || fail "a pass under a $resource back-off still read the PR: $(cat "$home/forge/calls.log")"
+    rm "$home/gh-state/backoff-$resource"
+  done
+  expect_one "$home" 'conflicts with its base' 'the conflict must wake once the back-offs end'
+  pass 'a back-off on either resource a PR read needs makes none of its calls'
+}
+
 test_response_body_never_backs_off_the_fleet() {
   local home
   home=$(new_home body-phrase)
@@ -1010,7 +1029,7 @@ for test_name in test_maintainer_author_and_approval_states_are_distinct \
   test_all_owned_pr_reads_start_in_one_wave test_checks_on_later_pages \
   test_unsupported_provider_has_no_github_reads test_final_contributions_are_not_enrolled_again \
   test_many_recorded_contributions_do_not_starve_a_new_branch_pr test_fleet_backoff_defers_reads_without_waking \
-  test_response_body_never_backs_off_the_fleet; do
+  test_response_body_never_backs_off_the_fleet test_backoff_on_either_resource_makes_no_pr_read; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures PR health regressions"

@@ -236,6 +236,7 @@ read_pr() { # url deadline output-directory -> rest.json gql.json
   fm_pr_url_parse "$url" && [ "$FM_PR_PROVIDER" = github ] || return 1
   number=$FM_PR_NUMBER
   owner=${FM_PR_PATH%%/*}; repo=${FM_PR_PATH#*/}
+  fm_gh_budget_admit core && fm_gh_budget_admit graphql || return 1
   gh_read "$deadline" api "repos/$owner/$repo/pulls/$number" > "$out/rest.json" 2>/dev/null &
   local rest_pid=$!
   gh_read "$deadline" api graphql --paginate --slurp -F "owner=$owner" -F "repo=$repo" -F "number=$number" \
