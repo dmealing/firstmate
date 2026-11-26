@@ -17,52 +17,40 @@
 # started run by about a minute, so load alone cannot see a start that just
 # happened. One machine-wide file holds the time of the latest reserved start
 # slot, kept in ${FM_VALIDATION_START_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/firstmate/validation-start}
-# and updated under flock where flock exists. A run waits until that slot plus
-# FM_VALIDATION_START_SPACING seconds (default 90), then judges load. A
-# missing, unreadable, malformed, or future-dated file never blocks a run: it
-# admits as if no run had started.
+# and read and updated only under the portable lock of bin/fm-wake-lib.sh. A
+# run reserves the slot FM_VALIDATION_START_SPACING seconds (default 90) after
+# the recorded one, clamped to the end of its own remaining wait, waits until
+# it, then judges load. A missing, unreadable, or malformed file, or one dated
+# past the end of the remaining wait, never blocks a run: it admits as if no
+# run had started. When the lock cannot be taken within 5 seconds the run
+# skips spacing and judges load at once.
 #
-# Headroom is this host's own probes (bin/fm-host-probe-lib.sh):
-#   load    the 1-minute load average is at or over cores * max-load-per-core
-#   memory  available memory is under min-mem-free-pct percent of total
-#           (off by default)
-# A probe that cannot be read is not judged, so an unprobeable host admits.
-#
-# Optional, gitignored config/validation-admission (docs/configuration.md
-# "Validation admission" owns the format) sets the two thresholds as
-# `max-load-per-core <decimal>` (default 1.0) and `min-mem-free-pct <0-100>`
-# (default 0, which never defers: a host that runs with little free memory by
-# design would otherwise never admit), one key and value per line, each key at
-# most once; blank lines and # comments are ignored. A malformed file names
-# its line on stderr and exits 1 without judging.
+# Headroom is this host's own 1-minute load average (bin/fm-host-probe-lib.sh):
+# the run defers while it is at or over the logical core count. A probe that
+# cannot be read is not judged, so an unprobeable host admits.
 #
 # Without --wait it judges once. With --wait it first sleeps a random 0 to
-# interval/2 seconds, then waits out the start spacing, then judges; while deferred it sleeps interval plus a random 0
-# to interval/2 seconds (at least 1) and judges again, until it admits or the
-# summed sleep reaches the wait. --interval defaults to 60 and may be 0.
+# interval/2 seconds, then waits out the start spacing, then judges; while
+# deferred it sleeps interval plus a random 0 to interval/2 seconds (at least
+# 1) and judges again, until it admits or the summed sleep reaches the wait.
+# --interval defaults to 60 and may be 0.
 #
-# Output: one line on stdout, in this fixed order:
-#   validation-admit: <admit|defer> reason=<ok|load|memory|load,memory>
-#     load1=<X|unknown> cores=<N|unknown> max_load1=<X|unknown>
-#     mem_free_pct=<N|unknown> min_mem_free_pct=<N> waited_s=<N>
+# Output: one line on stdout:
+#   validation-admit: <admit|defer> reason=<ok|load> load1=<X|unknown>
+#     cores=<N|unknown> max_load1=<X|unknown> waited_s=<N>
 # (one physical line).
 #
-# Environment: FM_HOME and FM_CONFIG_OVERRIDE resolve the config directory as
-# the other bin/ scripts do; FM_VALIDATION_START_FILE and
-# FM_VALIDATION_START_SPACING set the start-spacing file and window.
+# Environment: FM_VALIDATION_START_FILE and FM_VALIDATION_START_SPACING set the
+# start-spacing file and window.
 #
-# Exit status: 0 admit, 75 defer (still deferred when --wait ran out), 1 an
-# invalid config/validation-admission, 2 a usage error.
+# Exit status: 0 admit, 75 defer (still deferred when --wait ran out), 2 a
+# usage error.
 set -u
 export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/fm-host-probe-lib.sh
 . "$SCRIPT_DIR/fm-host-probe-lib.sh"
-FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
-CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
-ADMISSION_CONFIG="$CONFIG/validation-admission"
 
 usage() { echo "usage: fm-validation-admit.sh [--wait <seconds>] [--interval <seconds>]" >&2; exit 2; }
 
@@ -79,57 +67,17 @@ done
 if [ -n "$wait_s" ]; then fm_host_probe_uint "$wait_s" || usage; fi
 fm_host_probe_uint "$interval" || usage
 
-max_per_core=1.0
-min_mem_pct=0
-if [ -e "$ADMISSION_CONFIG" ]; then
-  n=0 seen=' '
-  while IFS= read -r line || [ -n "$line" ]; do
-    n=$((n + 1))
-    line=${line%%#*}
-    set -f
-    # shellcheck disable=SC2086
-    set -- $line
-    set +f
-    [ "$#" -gt 0 ] || continue
-    key=$1 val=${2:-}
-    if [ "$#" -ne 2 ]; then
-      echo "fm-validation-admit: config/validation-admission line $n: expected one key and one value" >&2; exit 1
-    fi
-    case "$seen" in *" $key "*) echo "fm-validation-admit: config/validation-admission line $n: '$key' repeats" >&2; exit 1 ;; esac
-    seen="$seen$key "
-    case "$key" in
-      max-load-per-core)
-        case "$val" in
-          ''|*[!0-9.]*|*.*.*|.*|*.) echo "fm-validation-admit: config/validation-admission line $n: max-load-per-core must be a positive decimal" >&2; exit 1 ;;
-        esac
-        awk -v v="$val" 'BEGIN{exit !(v > 0)}' || { echo "fm-validation-admit: config/validation-admission line $n: max-load-per-core must be a positive decimal" >&2; exit 1; }
-        max_per_core=$val ;;
-      min-mem-free-pct)
-        if ! fm_host_probe_uint "$val" || [ "$val" -gt 100 ]; then
-          echo "fm-validation-admit: config/validation-admission line $n: min-mem-free-pct must be a whole number from 0 to 100" >&2; exit 1
-        fi
-        min_mem_pct=$val ;;
-      *) echo "fm-validation-admit: config/validation-admission line $n: unknown key '$key'" >&2; exit 1 ;;
-    esac
-  done < "$ADMISSION_CONFIG"
-fi
-
 # judge: sets verdict, reason, max_load1 from a fresh probe.
 judge() {
-  local reasons=
-  load1='' cores='' mem_free_pct=''
+  load1='' cores=''
   fm_host_probe
-  max_load1=unknown
+  max_load1=unknown verdict=admit reason=ok
   if [ "$cores" != unknown ]; then
-    max_load1=$(awk -v c="$cores" -v r="$max_per_core" 'BEGIN{printf "%.2f", c * r}')
+    max_load1=$(awk -v c="$cores" 'BEGIN{printf "%.2f", c}')
     if [ "$load1" != unknown ] && awk -v a="$load1" -v b="$max_load1" 'BEGIN{exit !(a >= b)}'; then
-      reasons=load
+      verdict=defer reason=load
     fi
   fi
-  if [ "$mem_free_pct" != unknown ] && [ "$mem_free_pct" -lt "$min_mem_pct" ]; then
-    reasons=${reasons:+$reasons,}memory
-  fi
-  if [ -n "$reasons" ]; then verdict=defer reason=$reasons; else verdict=admit reason=ok; fi
 }
 
 # nap <base>: sleep base plus a random 0..interval/2 seconds, adding it to waited.
@@ -140,26 +88,25 @@ nap() {
   waited=$((waited + s))
 }
 
-# space_start: reserve the next machine-wide start slot and sleep until it.
+# space_start: under the start lock, reserve the next machine-wide start slot
+# within the remaining wait, then sleep until it.
 space_start() {
-  local now slot
+  local lock="$START_FILE.lock" now limit last='' slot
+  # shellcheck source=bin/fm-wake-lib.sh
+  . "$SCRIPT_DIR/fm-wake-lib.sh" >/dev/null 2>&1 || return 0
+  fm_lock_acquire_wait_max "$lock" 5 2>/dev/null || return 0
   now=$(date +%s)
-  slot=$(
-    command -v flock >/dev/null 2>&1 && { exec 9>>"$START_FILE.lock" && flock -w 5 9; } 2>/dev/null
-    last=
-    [ ! -f "$START_FILE" ] || { IFS= read -r last < "$START_FILE"; } 2>/dev/null || last=
-    fm_host_probe_uint "$last" && [ "$last" -le $((now + spacing)) ] || last=0
-    slot=$((last + spacing))
-    [ "$slot" -gt "$now" ] || slot=$now
-    printf '%s\n' "$slot" 2>/dev/null > "$START_FILE"
-    printf '%s\n' "$slot"
-  ) || slot=$now
-  fm_host_probe_uint "$slot" || slot=$now
-  local s=$((slot - now))
-  [ "$s" -le $((wait_s - waited)) ] || s=$((wait_s - waited))
-  [ "$s" -gt 0 ] || return 0
-  sleep "$s"
-  waited=$((waited + s))
+  limit=$((now + wait_s - waited))
+  [ ! -f "$START_FILE" ] || { IFS= read -r last < "$START_FILE"; } 2>/dev/null || last=
+  fm_host_probe_uint "$last" && [ "$last" -le "$limit" ] || last=0
+  slot=$((last + spacing))
+  [ "$slot" -gt "$now" ] || slot=$now
+  [ "$slot" -le "$limit" ] || slot=$limit
+  printf '%s\n' "$slot" 2>/dev/null > "$START_FILE"
+  fm_lock_release "$lock" 2>/dev/null
+  [ "$slot" -gt "$now" ] || return 0
+  sleep $((slot - now))
+  waited=$((waited + slot - now))
 }
 
 START_FILE="${FM_VALIDATION_START_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/firstmate/validation-start}"
@@ -177,7 +124,7 @@ while [ "$verdict" = defer ] && [ -n "$wait_s" ] && [ "$waited" -lt "$wait_s" ];
   judge
 done
 
-printf 'validation-admit: %s reason=%s load1=%s cores=%s max_load1=%s mem_free_pct=%s min_mem_free_pct=%s waited_s=%s\n' \
-  "$verdict" "$reason" "$load1" "$cores" "$max_load1" "$mem_free_pct" "$min_mem_pct" "$waited"
+printf 'validation-admit: %s reason=%s load1=%s cores=%s max_load1=%s waited_s=%s\n' \
+  "$verdict" "$reason" "$load1" "$cores" "$max_load1" "$waited"
 [ "$verdict" = admit ] || exit 75
 exit 0

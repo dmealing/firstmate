@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Behavioral coverage for bin/fm-validation-admit.sh: the load and opt-in
-# memory verdicts from faked host probes, unknown probes stepping aside, the
-# config/validation-admission thresholds and their refusals, the bounded wait
-# that re-judges after jittered sleeps and gives up deferred, usage errors,
-# and a real-host smoke.
+# Behavioral coverage for bin/fm-validation-admit.sh: the load verdict from
+# faked host probes, unknown probes stepping aside, the bounded wait that
+# re-judges after jittered sleeps and gives up deferred, the locked
+# machine-wide start spacing, usage errors, and a real-host smoke.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -41,11 +40,9 @@ SH
   printf '%s\n' "$fakebin"
 }
 
-make_home() {  # <name> [config line...]
+make_home() {  # <name>
   local home="$TMP_ROOT/$1"
-  shift
-  mkdir -p "$home/config"
-  [ "$#" -eq 0 ] || printf '%s\n' "$@" > "$home/config/validation-admission"
+  mkdir -p "$home"
   printf '%s\n' "$home"
 }
 
@@ -61,58 +58,24 @@ test_load_verdicts() {
   fakebin=$(make_probes "$TMP_ROOT/p-low" 3.50 4 8)
   out=$(run_admit "$home" "$fakebin"); rc=$?
   expect_code 0 "$rc" "load under cores"
-  assert_equals 'validation-admit: admit reason=ok load1=3.50 cores=8 max_load1=8.00 mem_free_pct=4 min_mem_free_pct=0 waited_s=0' "$out" \
-    "load under cores must admit, and low free memory must not defer by default"
+  assert_equals 'validation-admit: admit reason=ok load1=3.50 cores=8 max_load1=8.00 waited_s=0' "$out" \
+    "load under cores must admit, and low free memory must not defer"
   fakebin=$(make_probes "$TMP_ROOT/p-high" 8.00 60 8)
   out=$(run_admit "$home" "$fakebin"); rc=$?
   expect_code 75 "$rc" "load at cores"
   assert_contains "$out" 'validation-admit: defer reason=load load1=8.00 cores=8 max_load1=8.00' \
     "load at the core count must defer"
   [ ! -e "$fakebin/slept" ] || fail "a single judgement must not sleep"
-  pass "load at or over the core count defers; under it admits; memory is off by default"
-}
-
-test_config_thresholds() {
-  local home fakebin out rc
-  home=$(make_home cfg '# stricter host' 'max-load-per-core 0.5' 'min-mem-free-pct 20   # opt in')
-  fakebin=$(make_probes "$TMP_ROOT/p-cfg" 4.00 10 8)
-  out=$(run_admit "$home" "$fakebin"); rc=$?
-  expect_code 75 "$rc" "configured thresholds"
-  assert_contains "$out" 'defer reason=load,memory load1=4.00 cores=8 max_load1=4.00 mem_free_pct=10 min_mem_free_pct=20' \
-    "both configured thresholds must be judged and named"
-  home=$(make_home cfg-loose 'max-load-per-core 1.5')
-  out=$(run_admit "$home" "$fakebin"); rc=$?
-  expect_code 0 "$rc" "looser load threshold"
-  assert_contains "$out" 'admit reason=ok load1=4.00 cores=8 max_load1=12.00' "a looser ratio must raise the load ceiling"
-  pass "config/validation-admission sets the load ratio and the opt-in memory floor"
-}
-
-test_config_refusals() {
-  local fakebin line home out rc i=0
-  fakebin=$(make_probes "$TMP_ROOT/p-bad" 1.00 50 8)
-  for line in 'max-load-per-core 0' 'max-load-per-core abc' 'max-load-per-core 1.' 'min-mem-free-pct 101' \
-    'min-mem-free-pct 5%' 'max-load-per-core' 'max-load-per-core 1 2' 'max-load 1' 'max-load-per-core *'; do
-    i=$((i + 1))
-    home=$(make_home "bad-$i" '' "$line")
-    out=$(run_admit "$home" "$fakebin"); rc=$?
-    expect_code 1 "$rc" "malformed line: $line"
-    assert_contains "$out" 'config/validation-admission line 2:' "the refusal must name the malformed line for: $line"
-    case "$out" in *"validation-admit: admit"*|*"validation-admit: defer"*) fail "a malformed config must not judge: $line" ;; esac
-  done
-  home=$(make_home dup 'max-load-per-core 1' 'max-load-per-core 2')
-  out=$(run_admit "$home" "$fakebin"); rc=$?
-  expect_code 1 "$rc" "repeated key"
-  assert_contains "$out" "line 2: 'max-load-per-core' repeats" "a repeated key must be refused"
-  pass "a malformed or repeated config line is refused by line number, never guessed"
+  pass "load at or over the core count defers; under it admits; memory is not judged"
 }
 
 test_unknown_probes_step_aside() {
   local home fakebin out rc
-  home=$(make_home unknown 'min-mem-free-pct 50')
+  home=$(make_home unknown)
   fakebin=$(make_probes "$TMP_ROOT/p-unknown" '' '' '')
   out=$(run_admit "$home" "$fakebin"); rc=$?
   expect_code 0 "$rc" "no probes"
-  assert_equals 'validation-admit: admit reason=ok load1=unknown cores=unknown max_load1=unknown mem_free_pct=unknown min_mem_free_pct=50 waited_s=0' "$out" \
+  assert_equals 'validation-admit: admit reason=ok load1=unknown cores=unknown max_load1=unknown waited_s=0' "$out" \
     "an unprobeable host must admit rather than strand a start"
   pass "unreadable probes are not judged, so an unprobeable host admits"
 }
@@ -127,10 +90,10 @@ test_wait_rejudges_until_admitted() {
   assert_contains "$out" 'validation-admit: admit reason=ok load1=3.00 cores=8' "the wait must admit once load falls"
   calls=$(cat "$fakebin/load-calls")
   assert_equals 3 "$calls" "the wait must judge until the first admitting sample and then stop"
-  # An initial 0..5 s jitter nap, then two deferred naps of 10 plus 0..5 s.
-  awk 'NR==1 && ($1 < 0 || $1 > 5) {bad=1} NR>1 && ($1 < 10 || $1 > 15) {bad=1} END {exit bad}' "$fakebin/slept" ||
-    fail "naps must be an initial 0..interval/2 jitter, then interval plus 0..interval/2: $(tr '\n' ' ' < "$fakebin/slept")"
-  [ "$(grep -c . "$fakebin/slept")" -le 3 ] || fail "the wait must not nap after admitting"
+  # Spec, interval 10: an initial 0..5 s jitter nap (skipped when it draws 0),
+  # then one 10..15 s nap per deferral; two deferrals precede the admission.
+  awk '$1 < 0 || $1 > 15 || ($1 > 5 && $1 < 10) {bad=1} $1 >= 10 {long++} END {exit bad || long != 2 || NR > 3}' "$fakebin/slept" ||
+    fail "naps must be at most one 0..interval/2 jitter and exactly two interval plus 0..interval/2: $(tr '\n' ' ' < "$fakebin/slept")"
   pass "--wait re-judges after jittered naps and admits as soon as load falls"
 }
 
@@ -147,26 +110,54 @@ test_wait_gives_up_deferred() {
   pass "--wait gives up deferred once its summed naps reach the bound, even at interval 0"
 }
 
+# admit_spaced <start-file> <home> <fakebin> <wait>: one admission with a 40 s
+# start window and no jitter; prints the whole-second spacing nap it recorded
+# (0 for none). Sub-second sleeps are the lock helper's contention polls.
+admit_spaced() {
+  local out rc nap
+  rm -f "$3/slept"
+  out=$(FM_VALIDATION_START_FILE="$1" FM_VALIDATION_START_SPACING=40 run_admit "$2" "$3" --wait "$4" --interval 0); rc=$?
+  expect_code 0 "$rc" "spaced admission"
+  nap=$(grep -m1 -x '[0-9][0-9]*' "$3/slept" 2>/dev/null)
+  nap=${nap:-0}
+  assert_contains "$out" "waited_s=$nap" "the spacing wait must count in waited_s"
+  printf '%s\n' "$nap"
+}
+
+# in_window <got> <want> <what>: the clock may tick up to 2 s between runs.
+in_window() {
+  [ "$1" -le "$2" ] && [ "$1" -ge $(($2 - 2)) ] || fail "$3 must wait about $2 s, slept $1"
+}
+
 test_start_spacing() {
-  local home fakebin out rc start="$TMP_ROOT/start-slot" first second
+  local home fakebin start="$TMP_ROOT/start-slot" nap
   home=$(make_home spacing)
   fakebin=$(make_probes "$TMP_ROOT/p-spacing" 1.00 50 8)
-  out=$(FM_VALIDATION_START_FILE="$start" FM_VALIDATION_START_SPACING=40 run_admit "$home" "$fakebin" --wait 600 --interval 0); rc=$?
-  expect_code 0 "$rc" "first admission"
-  [ ! -e "$fakebin/slept" ] || fail "the first admission must not wait: $(tr '\n' ' ' < "$fakebin/slept")"
-  assert_contains "$out" 'waited_s=0' "the first admission must report no wait"
-  out=$(FM_VALIDATION_START_FILE="$start" FM_VALIDATION_START_SPACING=40 run_admit "$home" "$fakebin" --wait 600 --interval 0); rc=$?
-  expect_code 0 "$rc" "second admission"
-  second=$(head -1 "$fakebin/slept" 2>/dev/null)
-  case "$second" in ''|*[!0-9]*) fail "the second admission must wait out the spacing, slept: '$second'" ;; esac
-  [ "$second" -ge 38 ] && [ "$second" -le 40 ] || fail "the second admission must wait to the end of the 40 s window, slept $second"
-  assert_contains "$out" "waited_s=$second" "the spacing wait must count in waited_s"
-  rm -f "$fakebin/slept"
-  out=$(FM_VALIDATION_START_FILE="$start" FM_VALIDATION_START_SPACING=40 run_admit "$home" "$fakebin" --wait 10 --interval 0); rc=$?
-  expect_code 0 "$rc" "third admission with a short wait"
-  first=$(head -1 "$fakebin/slept" 2>/dev/null)
-  assert_equals 10 "$first" "the spacing wait must never exceed --wait"
-  pass "--wait spaces back-to-back admissions by the start window, bounded by --wait"
+  nap=$(admit_spaced "$start" "$home" "$fakebin" 600)
+  assert_equals 0 "$nap" "the first admission must not wait"
+  nap=$(admit_spaced "$start" "$home" "$fakebin" 600); in_window "$nap" 40 "the second admission"
+  nap=$(admit_spaced "$start" "$home" "$fakebin" 600); in_window "$nap" 80 "the third admission"
+  nap=$(admit_spaced "$start" "$home" "$fakebin" 600); in_window "$nap" 120 "the fourth admission"
+  nap=$(admit_spaced "$start" "$home" "$fakebin" 130)
+  assert_equals 130 "$nap" "a reservation past the remaining wait must clamp to the wait, never reset"
+  nap=$(admit_spaced "$start" "$home" "$fakebin" 10)
+  assert_equals 0 "$nap" "a record past a shorter wait must not block that run"
+  [ ! -e "$start.lock" ] || fail "the start lock must be released after each reservation"
+  pass "--wait spaces back-to-back admissions one window apart, chained and bounded by --wait"
+}
+
+test_start_spacing_skips_a_held_lock() {
+  local home fakebin start="$TMP_ROOT/start-locked" holder nap
+  home=$(make_home spacing-locked)
+  fakebin=$(make_probes "$TMP_ROOT/p-spacing-locked" 1.00 50 8)
+  printf '%s\n' $(( $(date +%s) + 30 )) > "$start"
+  sleep 600 & holder=$!
+  mkdir "$start.lock"
+  printf '%s\n' "$holder" > "$start.lock/pid"
+  nap=$(admit_spaced "$start" "$home" "$fakebin" 600)
+  kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+  assert_equals 0 "$nap" "a start lock held past its wait must skip spacing, not read the record unlocked"
+  pass "a start lock that cannot be taken skips spacing and admits"
 }
 
 test_start_spacing_never_blocks_on_an_unreadable_record() {
@@ -213,12 +204,11 @@ test_real_host_smoke() {
 }
 
 test_load_verdicts
-test_config_thresholds
-test_config_refusals
 test_unknown_probes_step_aside
 test_wait_rejudges_until_admitted
 test_wait_gives_up_deferred
 test_start_spacing
+test_start_spacing_skips_a_held_lock
 test_start_spacing_never_blocks_on_an_unreadable_record
 test_usage_errors
 test_real_host_smoke
