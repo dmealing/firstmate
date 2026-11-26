@@ -47,13 +47,15 @@
 #     no longer uses local resources, and
 #   - has a live session, no endpoint, or an endpoint whose liveness cannot be
 #     proven absent. A parked lane, whose endpoint is proven gone or holds only
-#     a shell, holds no place unless a spawn or lifecycle action still holds its
-#     record or its control lock (fm_project_capacity_occupants).
+#     a shell, holds no place unless a firstmate action still holds its record
+#     or its control lock (fm_project_capacity_occupants).
 # A place therefore frees when a PR-based ship records its ready PR, when its
-# session exits, or when any task is cleaned up and its record removed. A
-# local-only ship and a scout hold their place while their session is live or a
-# spawn or lifecycle action holds them. A worker that is steered back into work
-# after its PR handoff is not counted again.
+# endpoint is proven gone or holds only a shell, or when any task is cleaned up
+# and its record removed. A local-only ship and a scout hold their place while
+# their session is live, while they have no endpoint or their liveness cannot be
+# proven, or while a firstmate action holds their record or control lock. A
+# worker that is steered back into work after its PR handoff is not counted
+# again.
 # The declaration is matched by the spawning clone's directory name, so clones
 # of one origin share the cap only when they use that same directory name. A
 # clone of that origin under a different directory name finds no declaration
