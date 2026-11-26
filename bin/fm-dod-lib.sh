@@ -464,7 +464,9 @@ You drive no-mistakes by responding to its gates, not by implementing fixes.
 Before the \`no-mistakes axi run\` that starts a NEW run - never before reattaching to a run that already exists - do these, in order:
 1. Where the installed no-mistakes has \`no-mistakes axi triage\`, run \`no-mistakes axi triage --conflicts\`.
    When it reports a conflict with the base branch, main has moved under you: merge or rebase the current base into your branch, regenerate any generated file the conflict touched with the project's own generator, rerun the project's tests, commit, and check again, so the run does not meet a conflict main already made.
-   When it reports a conflict with a branch in validation or another open pull request, do not start: append \`needs-decision [at=<epoch>] [key=nm-triage-stop]: {the conflicting branch or PR and the files}\` and stop.
+   When it reports a conflict with a branch in validation, do not start: append \`needs-decision [at=<epoch>] [key=nm-triage-stop]: {the conflicting branch and the files}\` and stop.
+   A conflict with another open pull request is advice, not a stop: name the pull request and files in your status line and go on.
+   When it exits 2 because it cannot check, go on and let \`no-mistakes axi run\` judge.
 2. Run \`$admit_q --wait 480\` in the foreground and start the run when it returns, whatever its verdict: it waits, at most eight minutes, while the machine is too loaded for another validation run, so runs that finish together do not all start at once; it never forbids a start.
 3. When \`no-mistakes axi run\` (or \`axi triage\`) stops before starting with a triage verdict, do not start it another way: append \`needs-decision [at=<epoch>] [key=nm-triage-stop]: triage stop {rules it named}; {the facts it printed}\` and stop.
    Never pass \`--triage-override\` on your own judgement; pass it only when firstmate's reply for this run tells you to, with the reason that reply gives.

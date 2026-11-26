@@ -7,12 +7,20 @@
 #
 # A worker runs it immediately before the `no-mistakes axi run` that starts a
 # NEW run (never before reattaching to a run that already exists), as its
-# generated instructions say. It is not a queue and keeps no shared record:
-# every worker judges the host on its own, so concurrent starts stagger only
-# because each one waits for headroom it can see. A deferral is advice with a
-# bounded wait, never a stop: the worker starts its run once this returns,
-# whatever the verdict, so a host that stays busy delays a start but never
-# strands it.
+# generated instructions say. It is not a run queue: it keeps no order, no
+# waiting list, and no per-project or per-home state. A deferral is advice
+# with a bounded wait, never a stop: the worker starts its run once this
+# returns, whatever the verdict, so a host that stays busy delays a start but
+# never strands it.
+#
+# Start spacing (with --wait only): the 1-minute load average lags a freshly
+# started run by about a minute, so load alone cannot see a start that just
+# happened. One machine-wide file holds the time of the latest reserved start
+# slot, kept in ${FM_VALIDATION_START_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/firstmate/validation-start}
+# and updated under flock where flock exists. A run waits until that slot plus
+# FM_VALIDATION_START_SPACING seconds (default 90), then judges load. A
+# missing, unreadable, malformed, or future-dated file never blocks a run: it
+# admits as if no run had started.
 #
 # Headroom is this host's own probes (bin/fm-host-probe-lib.sh):
 #   load    the 1-minute load average is at or over cores * max-load-per-core
@@ -29,8 +37,7 @@
 # its line on stderr and exits 1 without judging.
 #
 # Without --wait it judges once. With --wait it first sleeps a random 0 to
-# interval/2 seconds, so workers that finished together do not all sample the
-# same moment, then judges; while deferred it sleeps interval plus a random 0
+# interval/2 seconds, then waits out the start spacing, then judges; while deferred it sleeps interval plus a random 0
 # to interval/2 seconds (at least 1) and judges again, until it admits or the
 # summed sleep reaches the wait. --interval defaults to 60 and may be 0.
 #
@@ -41,7 +48,8 @@
 # (one physical line).
 #
 # Environment: FM_HOME and FM_CONFIG_OVERRIDE resolve the config directory as
-# the other bin/ scripts do.
+# the other bin/ scripts do; FM_VALIDATION_START_FILE and
+# FM_VALIDATION_START_SPACING set the start-spacing file and window.
 #
 # Exit status: 0 admit, 75 defer (still deferred when --wait ran out), 1 an
 # invalid config/validation-admission, 2 a usage error.
@@ -132,8 +140,37 @@ nap() {
   waited=$((waited + s))
 }
 
+# space_start: reserve the next machine-wide start slot and sleep until it.
+space_start() {
+  local now slot
+  now=$(date +%s)
+  slot=$(
+    command -v flock >/dev/null 2>&1 && { exec 9>>"$START_FILE.lock" && flock -w 5 9; } 2>/dev/null
+    last=
+    [ ! -f "$START_FILE" ] || { IFS= read -r last < "$START_FILE"; } 2>/dev/null || last=
+    fm_host_probe_uint "$last" && [ "$last" -le $((now + spacing)) ] || last=0
+    slot=$((last + spacing))
+    [ "$slot" -gt "$now" ] || slot=$now
+    printf '%s\n' "$slot" 2>/dev/null > "$START_FILE"
+    printf '%s\n' "$slot"
+  ) || slot=$now
+  fm_host_probe_uint "$slot" || slot=$now
+  local s=$((slot - now))
+  [ "$s" -le $((wait_s - waited)) ] || s=$((wait_s - waited))
+  [ "$s" -gt 0 ] || return 0
+  sleep "$s"
+  waited=$((waited + s))
+}
+
+START_FILE="${FM_VALIDATION_START_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/firstmate/validation-start}"
+spacing=${FM_VALIDATION_START_SPACING:-90}
+fm_host_probe_uint "$spacing" || spacing=90
+
 waited=0
-[ -z "$wait_s" ] || nap 0
+if [ -n "$wait_s" ]; then
+  nap 0
+  mkdir -p "$(dirname "$START_FILE")" 2>/dev/null && space_start
+fi
 judge
 while [ "$verdict" = defer ] && [ -n "$wait_s" ] && [ "$waited" -lt "$wait_s" ]; do
   nap "$(( interval > 0 ? interval : 1 ))"

@@ -52,7 +52,7 @@ make_home() {  # <name> [config line...]
 run_admit() {  # <home> <fakebin> [args...]
   local home=$1 fakebin=$2
   shift 2
-  PATH="$fakebin:$BASE_PATH" FM_HOME="$home" "$ADMIT" "$@" 2>&1
+  PATH="$fakebin:$BASE_PATH" FM_VALIDATION_START_FILE="${FM_VALIDATION_START_FILE:-$home/start-slot}" FM_HOME="$home" "$ADMIT" "$@" 2>&1
 }
 
 test_load_verdicts() {
@@ -147,6 +147,50 @@ test_wait_gives_up_deferred() {
   pass "--wait gives up deferred once its summed naps reach the bound, even at interval 0"
 }
 
+test_start_spacing() {
+  local home fakebin out rc start="$TMP_ROOT/start-slot" first second
+  home=$(make_home spacing)
+  fakebin=$(make_probes "$TMP_ROOT/p-spacing" 1.00 50 8)
+  out=$(FM_VALIDATION_START_FILE="$start" FM_VALIDATION_START_SPACING=40 run_admit "$home" "$fakebin" --wait 600 --interval 0); rc=$?
+  expect_code 0 "$rc" "first admission"
+  [ ! -e "$fakebin/slept" ] || fail "the first admission must not wait: $(tr '\n' ' ' < "$fakebin/slept")"
+  assert_contains "$out" 'waited_s=0' "the first admission must report no wait"
+  out=$(FM_VALIDATION_START_FILE="$start" FM_VALIDATION_START_SPACING=40 run_admit "$home" "$fakebin" --wait 600 --interval 0); rc=$?
+  expect_code 0 "$rc" "second admission"
+  second=$(head -1 "$fakebin/slept" 2>/dev/null)
+  case "$second" in ''|*[!0-9]*) fail "the second admission must wait out the spacing, slept: '$second'" ;; esac
+  [ "$second" -ge 38 ] && [ "$second" -le 40 ] || fail "the second admission must wait to the end of the 40 s window, slept $second"
+  assert_contains "$out" "waited_s=$second" "the spacing wait must count in waited_s"
+  rm -f "$fakebin/slept"
+  out=$(FM_VALIDATION_START_FILE="$start" FM_VALIDATION_START_SPACING=40 run_admit "$home" "$fakebin" --wait 10 --interval 0); rc=$?
+  expect_code 0 "$rc" "third admission with a short wait"
+  first=$(head -1 "$fakebin/slept" 2>/dev/null)
+  assert_equals 10 "$first" "the spacing wait must never exceed --wait"
+  pass "--wait spaces back-to-back admissions by the start window, bounded by --wait"
+}
+
+test_start_spacing_never_blocks_on_an_unreadable_record() {
+  local home fakebin out rc start="$TMP_ROOT/start-bad" future
+  home=$(make_home spacing-bad)
+  fakebin=$(make_probes "$TMP_ROOT/p-spacing-bad" 1.00 50 8)
+  mkdir -p "$start"
+  out=$(FM_VALIDATION_START_FILE="$start" FM_VALIDATION_START_SPACING=40 run_admit "$home" "$fakebin" --wait 600 --interval 0); rc=$?
+  expect_code 0 "$rc" "start record is a directory"
+  [ ! -e "$fakebin/slept" ] || fail "an unreadable start record must not wait"
+  start="$TMP_ROOT/start-garbage"
+  printf 'not a time\n' > "$start"
+  out=$(FM_VALIDATION_START_FILE="$start" FM_VALIDATION_START_SPACING=40 run_admit "$home" "$fakebin" --wait 600 --interval 0); rc=$?
+  expect_code 0 "$rc" "start record is garbage"
+  [ ! -e "$fakebin/slept" ] || fail "a malformed start record must not wait"
+  future=$(( $(date +%s) + 100000 ))
+  printf '%s\n' "$future" > "$start"
+  out=$(FM_VALIDATION_START_FILE="$start" FM_VALIDATION_START_SPACING=40 run_admit "$home" "$fakebin" --wait 600 --interval 0); rc=$?
+  expect_code 0 "$rc" "start record is far in the future"
+  [ ! -e "$fakebin/slept" ] || fail "a future-dated start record must not wait"
+  assert_contains "$out" 'validation-admit: admit' "an unusable start record must admit"
+  pass "a missing, unreadable, malformed, or future-dated start record never blocks a run"
+}
+
 test_usage_errors() {
   local fakebin arg rc
   fakebin=$(make_probes "$TMP_ROOT/p-usage" 1.00 50 8)
@@ -174,6 +218,8 @@ test_config_refusals
 test_unknown_probes_step_aside
 test_wait_rejudges_until_admitted
 test_wait_gives_up_deferred
+test_start_spacing
+test_start_spacing_never_blocks_on_an_unreadable_record
 test_usage_errors
 test_real_host_smoke
 

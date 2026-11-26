@@ -51,7 +51,7 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-test-isolation-proof.sh` | Concurrent isolation harness and portable candidate set owner |
 | `fm-ensure-agents-md.sh` | Manually initialize project agent-memory files (see the helper's header and help) |
 | `fm-capacity.sh`         | Report of open lanes against the optional `config/lane-capacity` target and host headroom for queued-work dispatch; `--publish` writes this home's `state/lane-capacity.json` |
-| `fm-validation-admit.sh` | Bounded, jittered wait for machine headroom (load against cores) that a ship worker runs before starting a new validation run, so runs that finish together do not all start at once; advice, never a stop |
+| `fm-validation-admit.sh` | Bounded wait for machine headroom (a machine-wide start spacing, then load against cores) that a ship worker runs before starting a new validation run, so runs that finish together do not all start at once; advice, never a stop |
 | `fm-host-probe-lib.sh`   | Shared host load, core, and memory probes for `fm-capacity.sh` and `fm-validation-admit.sh` |
 | `fm-guard.sh`            | Warn on primary-checkout tangles, main-session pending wakes, and unhealthy supervision |
 | `fm-primary-scope-lib.sh` | Shared marker-or-plain-checkout primary-home predicate for tracked hooks             |

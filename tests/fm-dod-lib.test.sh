@@ -597,6 +597,9 @@ test_no_mistakes_dod_staggers_and_checks_before_a_new_run() {
   for forge in none gerrit; do
     dod=$(FM_ROOT="$ROOT" fm_dod_block no-mistakes nm-start fm/nm-start "$forge") || fail "no-mistakes DoD ($forge) did not render"
     assert_contains "$dod" 'no-mistakes axi triage --conflicts' "the $forge DoD must check for a moved-base conflict before a new run"
+    assert_contains "$dod" 'When it reports a conflict with a branch in validation, do not start' "the $forge DoD must stop only for a branch-in-validation conflict"
+    assert_contains "$dod" 'A conflict with another open pull request is advice, not a stop' "the $forge DoD must not stop a run for an open-pull-request conflict"
+    assert_contains "$dod" 'When it exits 2 because it cannot check, go on' "the $forge DoD must let axi run judge when the conflict check cannot run"
     assert_contains "$dod" '[key=nm-triage-stop]' "the $forge DoD must escalate a triage stop instead of starting another way"
     assert_contains "$dod" 'Never pass `--triage-override` on your own judgement' "the $forge DoD must forbid a self-granted override"
     cmd=$(printf '%s\n' "$dod" | sed -n 's/^2\. Run `\(.*fm-validation-admit\.sh\) --wait 480` in the foreground.*/\1/p')
