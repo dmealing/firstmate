@@ -1,0 +1,186 @@
+# Live contribution-poll drive: base (d22becdd) vs branch (7a03fd97)
+# Real bin/fm-contributions.sh poll, 3 disposable homes sharing one default GitHub state dir (XDG_STATE_HOME),
+# against a synthetic GitHub gh shim (ETag/304, X-RateLimit headers, Link next, Retry-After 403). Simulated clock via FM_CONTRIBUTIONS_NOW.
+
+## Timeline: base
+== pass 1 (cold: all three homes read their PR, simulated clock 2026-09-16T08:00:00Z) ==
+  calls in pass 1:      21 core-200       3 core-view 
+== pass 2 (+5 min: active PR 11 re-read, quiet PR 12/13 skipped, simulated clock 2026-09-16T08:05:00Z) ==
+  calls in pass 2:      21 core-200       3 core-view 
+== pass 3 (+10 min, simulated clock 2026-09-16T08:10:00Z) ==
+  calls in pass 3:      21 core-200       3 core-view 
+== pass 4 (+1 h: PR 13 (1-day-old) due, PR 12 (30-day quiet) still skipped, simulated clock 2026-09-16T09:00:00Z) ==
+  calls in pass 4:      21 core-200       3 core-view 
+== pass 5 (+65 min: PR 11 list grew 100 -> 101 (full first page, Link check), simulated clock 2026-09-16T09:05:00Z) ==
+  calls in pass 5:      21 core-200       3 core-view 
+  home1 pending: [
+  home1 pending:   {
+  home1 pending:     "token": "comment:101:2026-09-16T09:00:00Z:",
+  home1 pending:     "type": "comment",
+  home1 pending:     "source": "https://github.com/o/r/pull/11#issuecomment-101",
+  home1 pending:     "head": null,
+  home1 pending:     "author": "maintainer",
+  home1 pending:     "body": "Please clarify the contract",
+  home1 pending:     "task": "task1",
+  home1 pending:     "url": "https://github.com/o/r/pull/11"
+  home1 pending:   }
+  home1 pending: ]
+  home2 pending: [
+  home2 pending:   {
+  home2 pending:     "token": "comment:1:2026-09-16T09:00:00Z:",
+  home2 pending:     "type": "comment",
+  home2 pending:     "source": "https://github.com/o/r/pull/12#issuecomment-1",
+  home2 pending:     "head": null,
+  home2 pending:     "author": "maintainer",
+  home2 pending:     "body": "Please clarify the contract",
+  home2 pending:     "task": "task2",
+  home2 pending:     "url": "https://github.com/o/r/pull/12"
+  home2 pending:   }
+  home2 pending: ]
+== pass 6 (+2 h: quiet PR 12 must not be read yet, simulated clock 2026-09-16T10:00:00Z) ==
+  calls in pass 6:      21 core-200       3 core-view 
+  home2 pending: [
+  home2 pending:   {
+  home2 pending:     "token": "comment:1:2026-09-16T09:00:00Z:",
+  home2 pending:     "type": "comment",
+  home2 pending:     "source": "https://github.com/o/r/pull/12#issuecomment-1",
+  home2 pending:     "head": null,
+  home2 pending:     "author": "maintainer",
+  home2 pending:     "body": "Please clarify the contract",
+  home2 pending:     "task": "task2",
+  home2 pending:     "url": "https://github.com/o/r/pull/12"
+  home2 pending:   }
+  home2 pending: ]
+== pass 7 (+1 day: PR 12 quiet cadence reached, new comment seen, simulated clock 2026-09-17T08:00:00Z) ==
+  calls in pass 7:      21 core-200       3 core-view 
+  home2 pending: [
+  home2 pending:   {
+  home2 pending:     "token": "comment:1:2026-09-16T09:00:00Z:",
+  home2 pending:     "type": "comment",
+  home2 pending:     "source": "https://github.com/o/r/pull/12#issuecomment-1",
+  home2 pending:     "head": null,
+  home2 pending:     "author": "maintainer",
+  home2 pending:     "body": "Please clarify the contract",
+  home2 pending:     "task": "task2",
+  home2 pending:     "url": "https://github.com/o/r/pull/12"
+  home2 pending:   }
+  home2 pending: ]
+== pass 8 (PR 11 answers 403 + Retry-After: 2, simulated clock 2026-09-17T08:05:00Z) ==
+  calls in pass 8:      14 core-200       1 core-error       2 core-view 
+== pass 9 (same clock, back-off in force: expect zero core reads, simulated clock 2026-09-17T08:05:00Z) ==
+  calls in pass 9:      21 core-200       3 core-view 
+== pass 10 (after Retry-After expires: reads resume, simulated clock 2026-09-17T08:10:00Z) ==
+  calls in pass 10:      21 core-200       3 core-view 
+
+
+## Timeline: branch
+== pass 1 (cold: all three homes read their PR, simulated clock 2026-09-16T08:00:00Z) ==
+  calls in pass 1:      19 core-200       2 core-304       3 core-view 
+== pass 2 (+5 min: active PR 11 re-read, quiet PR 12/13 skipped, simulated clock 2026-09-16T08:05:00Z) ==
+  calls in pass 2:       1 core-200       6 core-304       1 core-view 
+== pass 3 (+10 min, simulated clock 2026-09-16T08:10:00Z) ==
+  calls in pass 3:       1 core-200       6 core-304       1 core-view 
+== pass 4 (+1 h: PR 13 (1-day-old) due, PR 12 (30-day quiet) still skipped, simulated clock 2026-09-16T09:00:00Z) ==
+  calls in pass 4:       1 core-200      13 core-304       2 core-view 
+== pass 5 (+65 min: PR 11 list grew 100 -> 101 (full first page, Link check), simulated clock 2026-09-16T09:05:00Z) ==
+  calls in pass 5:       3 core-200       5 core-304       1 core-view 
+  home1 pending: [
+  home1 pending:   {
+  home1 pending:     "token": "comment:101:2026-09-16T09:00:00Z:",
+  home1 pending:     "type": "comment",
+  home1 pending:     "source": "https://github.com/o/r/pull/11#issuecomment-101",
+  home1 pending:     "head": null,
+  home1 pending:     "author": "maintainer",
+  home1 pending:     "body": "Please clarify the contract",
+  home1 pending:     "task": "task1",
+  home1 pending:     "url": "https://github.com/o/r/pull/11"
+  home1 pending:   }
+  home1 pending: ]
+  home2 pending: []
+== pass 6 (+2 h: quiet PR 12 must not be read yet, simulated clock 2026-09-16T10:00:00Z) ==
+  calls in pass 6:       2 core-200       6 core-304       1 core-view 
+  home2 pending: []
+== pass 7 (+1 day: PR 12 quiet cadence reached, new comment seen, simulated clock 2026-09-17T08:00:00Z) ==
+  calls in pass 7:       4 core-200      18 core-304       3 core-view 
+  home2 pending: [
+  home2 pending:   {
+  home2 pending:     "token": "comment:1:2026-09-16T09:00:00Z:",
+  home2 pending:     "type": "comment",
+  home2 pending:     "source": "https://github.com/o/r/pull/12#issuecomment-1",
+  home2 pending:     "head": null,
+  home2 pending:     "author": "maintainer",
+  home2 pending:     "body": "Please clarify the contract",
+  home2 pending:     "task": "task2",
+  home2 pending:     "url": "https://github.com/o/r/pull/12"
+  home2 pending:   }
+  home2 pending: ]
+== pass 8 (PR 11 answers 403 + Retry-After: 2, simulated clock 2026-09-17T08:05:00Z) ==
+  calls in pass 8: 
+== pass 9 (same clock, back-off in force: expect zero core reads, simulated clock 2026-09-17T08:05:00Z) ==
+  calls in pass 9: 
+== pass 10 (after Retry-After expires: reads resume, simulated clock 2026-09-17T08:10:00Z) ==
+  calls in pass 10: 
+cache ledger pruned rate-core 
+
+## Shared hourly cap FM_GH_POLL_HOURLY=15, branch
+== pass 1 (shared hourly cap 15 across three homes, simulated clock 2026-09-16T08:00:00Z) ==
+  home1 poll rc=0 output=
+  home2 poll rc=0 output=
+  home3 poll rc=0 output=
+  calls in pass 1:      13 core-200       1 core-304       2 core-view 
+== pass 2 (+5 min, same clock hour, cap still spent, simulated clock 2026-09-16T08:05:00Z) ==
+  home1 poll rc=0 output=
+  home2 poll rc=0 output=
+  home3 poll rc=0 output=
+  calls in pass 2: 
+ledger entries: 13
+
+## Bare 403 + Retry-After back-off, isolated timeline
+### base
+== pass 1 (cold: all homes read, simulated clock 2026-09-16T08:00:00Z) ==
+  home1 poll rc=0 output=
+  home2 poll rc=0 output=
+  home3 poll rc=0 output=
+  calls in pass 1:      21 core-200       3 core-view 
+== pass 2 (PR 11 answers bare 403 + Retry-After: 2 (secondary limit), simulated clock 2026-09-16T08:05:00Z) ==
+  home1 poll rc=0 output=contributions: observation unavailable for https://github.com/o/r/pull/11 - core read exited 1 with 20s of budget left: gh: Please wait a few minutes before you try again. (HTTP 403) 
+  home2 poll rc=0 output=
+  home3 poll rc=0 output=
+  calls in pass 2:      14 core-200       1 core-error       2 core-view 
+== pass 3 (same moment, back-off in force: expect no core reads, simulated clock 2026-09-16T08:05:00Z) ==
+  home1 poll rc=0 output=
+  home2 poll rc=0 output=
+  home3 poll rc=0 output=
+  calls in pass 3:      21 core-200       3 core-view 
+== pass 4 (Retry-After expired: PR 11 due again, reads resume, simulated clock 2026-09-16T08:10:00Z) ==
+  home1 poll rc=0 output=
+  home2 poll rc=0 output=
+  home3 poll rc=0 output=
+  calls in pass 4:      21 core-200       3 core-view 
+  home1 pending: []
+### branch
+== pass 1 (cold: all homes read, simulated clock 2026-09-16T08:00:00Z) ==
+  home1 poll rc=0 output=
+  home2 poll rc=0 output=
+  home3 poll rc=0 output=
+  calls in pass 1:      19 core-200       2 core-304       3 core-view 
+== pass 2 (PR 11 answers bare 403 + Retry-After: 2 (secondary limit), simulated clock 2026-09-16T08:05:00Z) ==
+  home1 poll rc=0 output=
+  home2 poll rc=0 output=
+  home3 poll rc=0 output=
+  calls in pass 2:       1 core-error 
+== pass 3 (same moment, back-off in force: expect no core reads, simulated clock 2026-09-16T08:05:00Z) ==
+  home1 poll rc=0 output=
+  home2 poll rc=0 output=
+  home3 poll rc=0 output=
+  calls in pass 3: 
+== pass 4 (Retry-After expired: PR 11 due again, reads resume, simulated clock 2026-09-16T08:10:00Z) ==
+  home1 poll rc=0 output=
+  home2 poll rc=0 output=
+  home3 poll rc=0 output=
+  calls in pass 4:       1 core-200       6 core-304       1 core-view 
+  home1 pending: []
+
+## PR health monitor under fleet core back-off (fm-pr-health.sh poll, gh calls logged)
+branch: A (backoff-core) 0 calls; B (no back-off) 3 calls (2 graphql, 1 core)
+base: A 3 calls; B 3 calls

@@ -1,0 +1,42 @@
+ok - maintainer-gated CI, required approval and author action notify distinctly once
+ok - pending review requests imply recorded human approval
+ok - a PR with more than a page of pending review requests is recorded as awaiting review
+ok - check suites beyond the first page are read and classified
+ok - a check-suite list beyond the page bound stays unsettled and is retried
+ok - notifications trigger reads of owned PRs, unchanged feeds read nothing, the poll stays the fallback
+ok - notifications at the saved timestamp remain eligible
+ok - an event read that did not settle is retried on the next pass
+ok - a busy feed whose page reaches back past the cursor reads only the notified PR
+ok - unknown mergeability is re-read next pass while a confirmed conflict is not
+ok - an interrupted pass leaves its notified PRs pending
+ok - a full notification page forces a full read and still advances the cursor
+ok - UNKNOWN then DIRTY wakes once
+ok - DIRTY seen again at the same commits wakes nothing
+ok - a conflict notifies once per latest commit despite recovery or base movement
+ok - each required check that fails on an adopted draft wakes once per latest commit
+ok - a fallback notification does not hide a later required failure at the same commit
+ok - each check is judged by its newest run
+ok - a latest commit that moves between the two reads waits for the next pass
+ok - a red check on another home's PR wakes nothing in this home
+ok - a PR enrolled before any ready report, and one kept after cleanup, both still wake
+ok - an open PR that replaces a closed one on the same task branch is discovered
+ok - a green PR without a reviewer never notifies
+ok - a base with no required checks counts a failing reported check
+ok - a retired contribution is not reclaimed through the cached branch lookup
+ok - a retired contribution is not reclaimed by a fresh branch lookup
+ok - an unreadable durable record pauses the monitor once and keeps its fingerprints
+ok - nothing prints while nothing changed
+ok - a merged PR leaves the monitor
+ok - an absent flag leaves the home untouched
+ok - the watcher turns one conflict into one durable wake
+ok - check notifications survive cleanup and repeat only at a new latest commit
+ok - all owned PR reads start in one wave without rotating a backlog
+ok - all check pages contribute to required-check classification
+ok - GitLab ownership and branch discovery make no GitHub reads
+ok - final contributions are not enrolled on a poll
+ok - a home with many recorded contributions still enrolls a new task branch PR within the check bound
+ok - a fleet rate-limit back-off defers PR reads without a wake
+ok - a PR body that names a rate limit never sets a fleet back-off
+ok - a back-off on either resource a PR read needs makes none of its calls
+ok - a bare rate-limit answer backs the fleet off without a wake
+rc=0
