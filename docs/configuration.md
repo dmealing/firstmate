@@ -911,6 +911,16 @@ Publishing is best-effort and never changes what the watcher does; no spawn read
 No Firstmate script calls it.
 The script's header owns the report line, the published document's fields, the verdict, the beat freshness rules, the host-constraint thresholds, and the probe fallbacks.
 
+## Validation start spacing
+
+Every no-mistakes ship brief tells its worker to run `bin/fm-validation-admit.sh --wait 480` before the `no-mistakes axi run` that starts a new run, and to go on when it returns.
+The check first spaces starts, then judges load.
+Start spacing: one machine-wide file (`FM_VALIDATION_START_FILE`, default `${XDG_STATE_HOME:-$HOME/.local/state}/firstmate/validation-start`) holds the latest reserved start slot, and a run waits until 90 seconds (`FM_VALIDATION_START_SPACING`) after it, because the 1-minute load average lags a freshly started run by about a minute and cannot see it.
+Start spacing is not a run queue: it keeps no order, no waiting list, and no per-project or per-home state, and a missing, unreadable, malformed, or out-of-range file never blocks a run.
+It then waits, with jitter, while this host's 1-minute load average is at or over its logical cores; it never forbids a start.
+There is no configuration file.
+The script's header owns the verdict line, the spacing, wait, and jitter rules, and the exit codes; `bin/fm-host-probe-lib.sh` owns the probes.
+
 ## PR-ready line after green (config/ready-after-green)
 
 The optional local, gitignored `config/ready-after-green` presence flag opts a secondmate home into publishing its child's PR-ready parent line only after the child has reported checks green.

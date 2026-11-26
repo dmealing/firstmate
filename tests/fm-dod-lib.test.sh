@@ -591,6 +591,42 @@ test_external_review_done_with_backup_needs_the_copy() {
   pass "external review done with a backup: refused until HEAD is under refs/remotes/backup/backup/, then accepted"
 }
 
+# line_of <text> <fixed-string>: the first line number holding the string, or 0.
+line_of() { printf '%s\n' "$1" | grep -nF -m1 -- "$2" | cut -d: -f1 | grep . || echo 0; }
+
+# shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+test_no_mistakes_dod_staggers_and_checks_before_a_new_run() {
+  local forge cfg shape dod cmd out rc admit_at check_at stop_at fakebin
+  fakebin=$(fm_fakebin "$TMP_ROOT/admit-fake")
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fakebin/sleep"
+  chmod +x "$fakebin/sleep"
+  mkdir -p "$TMP_ROOT/cfg-turns" "$TMP_ROOT/cfg-plain"
+  : > "$TMP_ROOT/cfg-turns/wait-no-turns"
+  for forge in none gerrit; do
+    for cfg in turns plain; do
+      dod=$(CONFIG="$TMP_ROOT/cfg-$cfg" FM_ROOT="$ROOT" fm_dod_block no-mistakes nm-start fm/nm-start "$forge") || fail "no-mistakes DoD ($forge, $cfg) did not render"
+      assert_contains "$dod" 'When it reports a conflict with a branch in validation, do not start' "the $forge DoD must stop only for a branch-in-validation conflict"
+      assert_contains "$dod" 'A conflict with another open pull request is advice, not a stop' "the $forge DoD must not stop a run for an open-pull-request conflict"
+      assert_contains "$dod" 'When it exits 2 because it cannot check, go on' "the $forge DoD must let axi run judge when the conflict check cannot run"
+      assert_contains "$dod" 'Never pass `--triage-override` on your own judgement' "the $forge DoD must forbid a self-granted override"
+      admit_at=$(line_of "$dod" 'fm-validation-admit.sh --wait 480`')
+      check_at=$(line_of "$dod" 'run `no-mistakes axi triage --conflicts`')
+      stop_at=$(line_of "$dod" '[key=nm-triage-stop]: triage stop')
+      [ "$admit_at" -gt 0 ] && [ "$check_at" -gt "$admit_at" ] && [ "$stop_at" -gt "$check_at" ] ||
+        fail "the $forge DoD ($cfg) must wait for headroom, then check conflicts, then escalate a triage stop (lines $admit_at, $check_at, $stop_at)"
+      case "$cfg" in turns) shape='as ONE foreground call' ;; *) shape='backgrounded the same way as the drive call' ;; esac
+      assert_contains "$(printf '%s\n' "$dod" | sed -n "${admit_at}p")" "$shape" "the $forge DoD ($cfg) headroom wait must take the drive call's shape"
+      cmd=$(printf '%s\n' "$dod" | sed -n "${admit_at}s/^1\. Run \`\(.*fm-validation-admit\.sh --wait 480\)\` .*/\1/p")
+      [ -n "$cmd" ] || fail "the $forge DoD must name the headroom check with a bounded wait"
+      out=$(PATH="$fakebin:$PATH" FM_HOME="$TMP_ROOT/admit-home" FM_VALIDATION_START_FILE="$TMP_ROOT/admit-start" eval "$cmd" 2>&1); rc=$?
+      case "$rc" in 0|75) ;; *) fail "the headroom command the $forge DoD names must run (exit $rc): $out" ;; esac
+      assert_contains "$out" 'validation-admit: ' "the headroom command the $forge DoD names must report a verdict"
+    done
+  done
+  pass "no-mistakes DoD: headroom wait in the drive call's shape, then the conflict check, then triage-stop escalation"
+}
+
+test_no_mistakes_dod_staggers_and_checks_before_a_new_run
 test_external_forge_is_direct_pr_only
 test_external_rule_one_forbids_every_task_push
 test_external_dod_renders_the_adapter

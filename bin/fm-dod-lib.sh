@@ -434,7 +434,7 @@ EOF
 # because on gerrit, and under pr=manual (the `no-ci` argument), the ci step is
 # skipped and the drive call never reports a green PR.
 fm_nm_driving_block() {  # <forge|no-ci>
-  local pr_return_line='' pr_reattach_clause=';' drive_block wait_cfg
+  local pr_return_line='' pr_reattach_clause=';' drive_block wait_cfg admit_shape
   if [ "$1" != gerrit ] && [ "$1" != no-ci ]; then
     pr_return_line="Only a drive call's return reports the green PR: \`no-mistakes axi status\` shows progress but never reports \`checks-passed\` while the ci step is still monitoring the PR for merge, so never wait on a status poll for the next gate or outcome.
 "
@@ -444,12 +444,14 @@ fm_nm_driving_block() {  # <forge|no-ci>
   # the backgrounded drive a home had before that flag.
   wait_cfg=${CONFIG:-${FM_CONFIG_OVERRIDE:-${FM_HOME:-}/config}}
   if [ -e "$wait_cfg/wait-no-turns" ]; then
+    admit_shape="as ONE foreground call and let it block, the same way you run the drive call"
     drive_block="Drive the run with ONE foreground \`no-mistakes axi run\` and let it block.
 It bounds its own hold for you: \`--wait\` (default 8m) exists precisely so a harness with a ten-minute command cap gets a structured return instead of being killed mid-hold.
 Declare that wait using the brief's status-reporting rule before the foreground drive call.
 Never background a wait, and never arm a timer to stand in for one: a backgrounded call returns in milliseconds, so it does not wait at all, and every timer left behind fires later as a paid wake for nothing.
 ${pr_return_line}Whenever a drive call returns without a gate or an outcome - its own wait elapsed, or it was killed or timed out - that is not a failure: reattach at once by re-running \`no-mistakes axi run\` without flags, and issue the same foreground call again, one at a time, until a gate or outcome comes back${pr_reattach_clause} if it refuses because no run is active, read the finished outcome from \`no-mistakes axi status\`."
   else
+    admit_shape="backgrounded the same way as the drive call, acting only on its return when it finishes"
     drive_block="One drive call blocks until the next gate or outcome, which routinely outlives what your harness lets a single command run: Claude Code kills a command at ten minutes maximum, while one fix round is capped around thirty minutes and up to three rounds chain.
 So background the drive call with \`--wait 55m\`, which covers a whole fix round, instead of sitting in one blocking hold your harness will kill, and act only on its return when it finishes.
 Never loop \`sleep\` and \`no-mistakes axi status\` while it runs.
@@ -457,8 +459,20 @@ Declare that wait using the brief's status-reporting rule before waiting on the 
 Where a harness's own command limit is not established, assume it bounds commands and use that same backgrounded shape.
 ${pr_return_line}Whenever a drive call returns without a gate or an outcome - its own wait elapsed, or it was killed or timed out - reattach at once by re-running \`no-mistakes axi run --wait 55m\` with no other flags, backgrounded the same way${pr_reattach_clause} if it refuses because no run is active, read the finished outcome from \`no-mistakes axi status\`."
   fi
+  local admit_q
+  printf -v admit_q '%q' "${FM_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/bin/fm-validation-admit.sh"
   cat <<EOF
 You drive no-mistakes by responding to its gates, not by implementing fixes.
+Before the \`no-mistakes axi run\` that starts a NEW run - never before reattaching to a run that already exists - do these, in order:
+1. Run \`$admit_q --wait 480\` ${admit_shape}, and go on when it returns, whatever its verdict: it waits, at most eight minutes, while the machine is too loaded for another validation run, so runs that finish together do not all start at once; it never forbids a start.
+2. Then, immediately before \`no-mistakes axi run\` and where the installed no-mistakes has \`no-mistakes axi triage\`, run \`no-mistakes axi triage --conflicts\`, so it judges the base and the branches in validation as they are after the wait.
+   When it reports a conflict with the base branch, main has moved under you: merge or rebase the current base into your branch, regenerate any generated file the conflict touched with the project's own generator, rerun the project's tests, commit, and check again, so the run does not meet a conflict main already made.
+   When it reports a conflict with a branch in validation, do not start: append \`needs-decision [at=<epoch>] [key=nm-triage-stop]: {the conflicting branch and the files}\` and stop.
+   A conflict with another open pull request is advice, not a stop: name the pull request and files in your status line and go on.
+   When it exits 2 because it cannot check, go on and let \`no-mistakes axi run\` judge.
+3. When \`no-mistakes axi run\` (or \`axi triage\`) stops before starting with a triage verdict, do not start it another way: append \`needs-decision [at=<epoch>] [key=nm-triage-stop]: triage stop {rules it named}; {the facts it printed}\` and stop.
+   Never pass \`--triage-override\` on your own judgement; pass it only when firstmate's reply for this run tells you to, with the reason that reply gives.
+
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
 When starting no-mistakes, pass \`--intent\` as only this brief's \`## Captain's intent\` subsection body, not its heading, plus any later words the captain actually said.
 Preserve the actual words without adding speaker labels or direct address; the subsection heading supplies provenance outside the pipeline input.
