@@ -25,12 +25,12 @@
 # count it against the rate limit.
 # fm_gh_response_note <resource> <stdout-file> <stderr-file> records what one
 # finished gh call taught: the X-RateLimit headers of an --include response,
-# and a rate-limit response (HTTP 429, a 403 whose remaining count is 0, or
-# gh's rate-limit error text on stderr; a response body never counts). A rate
-# limit sets the back-off until Retry-After, else the reported reset, else
-# FM_GH_BACKOFF seconds (default 300) from now, and returns 2 so the caller
-# backs off instead of retrying. A secondary rate limit backs off every
-# resource.
+# and a rate-limit response (HTTP 429, a 403 that carries Retry-After or whose
+# remaining count is 0, or gh's rate-limit error text on stderr; a response
+# body never counts). A rate limit sets the back-off until Retry-After, else
+# the reported reset, else FM_GH_BACKOFF seconds (default 300) from now, and
+# returns 2 so the caller backs off instead of retrying. A secondary rate
+# limit backs off every resource.
 # fm_gh_cache_get <request> <etag-var> <body-file> and fm_gh_cache_put
 # <request> <etag> <body-file> keep one entry per request string (an ETag line,
 # then the body), published by rename so a reader sees one whole entry.
@@ -160,14 +160,15 @@ fm_gh_response_note() { # resource stdout-file stderr-file: 0 ordinary, 2 rate l
     _fm_gh_publish "$dir" "rate-$resource" "$(_fm_gh_num "$remaining" 0) $(_fm_gh_num "$limit" 0) $(_fm_gh_num "$reset" 0)"
   fi
   scope=
-  if grep -Eqi 'secondary[- ]rate[- ]limit|abuse detection' "$err" 2>/dev/null; then
+  retry=$(_fm_gh_num "$retry" '')
+  if grep -Eqi 'secondary[- ]rate[- ]limit|abuse detection|wait a few minutes before you try again' "$err" 2>/dev/null \
+    || { [ "$status" = 403 ] && [ -n "$retry" ]; }; then
     scope=all
   elif [ "$status" = 429 ] || { [ "$status" = 403 ] && [ "$remaining" = 0 ]; } \
     || grep -Eqi 'API rate limit (exceeded|already exceeded)|HTTP 429|rate limit exceeded' "$err" 2>/dev/null; then
     scope=$resource
   fi
   [ -n "$scope" ] || return 0
-  retry=$(_fm_gh_num "$retry" '')
   if [ -n "$retry" ]; then
     until=$((now + retry))
   elif [ "$(_fm_gh_num "$reset" 0)" -gt "$now" ]; then

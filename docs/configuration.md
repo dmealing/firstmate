@@ -122,7 +122,7 @@ Untracked files and directories whose names begin with `scratchpad` are also git
 - `bin/fm-spawn.sh` owns the base task-metadata fields it emits, while the runtime-backend section below owns backend-specific fields and selector interpretation.
 
 - [`bin/fm-contributions.sh`](../bin/fm-contributions.sh) owns durable published-contribution records under each task, observation bounds, equivalent triage-label configuration, the [review-bot setting above](#contribution-review-bots-configcontribution-review-bots), the opt-in `FM_CONTRIBUTIONS_REPLY_AGE` setting (seconds, unset by default) that turns on re-raising unanswered review threads after that age, and the authenticated contribution check.
-- [`bin/fm-gh-budget-lib.sh`](../bin/fm-gh-budget-lib.sh) owns the machine-wide GitHub poll budget, rate-limit back-off, and conditional-read cache that the contribution poll and PR health monitor share across every home on the machine, kept under `FM_GH_STATE_DIR` (default `$XDG_STATE_HOME/firstmate/github`).
+- [`bin/fm-gh-budget-lib.sh`](../bin/fm-gh-budget-lib.sh) owns the machine-wide GitHub poll budget and rate-limit back-off that the contribution poll and PR health monitor share across every home on the machine, and the conditional-read cache that only the contribution poll uses (the PR health monitor's core PR read is unconditional), kept under `FM_GH_STATE_DIR` (default `$XDG_STATE_HOME/firstmate/github`).
 
 - The producing PR and Relay helpers own the fields they append, [`bin/fm-classify-lib.sh`](../bin/fm-classify-lib.sh) owns status-event vocabulary, optional emission-time syntax, and legacy unknown-time handling, and `bin/fm-crew-state.sh` owns current-state reconciliation.
 
@@ -3408,7 +3408,7 @@ FM_TASK_INBOX_RING_MAX=3      # watcher delivery attempts without an acknowledge
 FM_TASK_INBOX_BUSY_MAX=2      # consecutive busy-deferred due polls before a stuck-busy stale wake; 1..999999999, at most 9 decimal digits, otherwise 2; policy: bin/fm-task-inbox-lib.sh
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script; a cut check wakes with its output so far plus `timed out after <seconds>s`
 FM_GH_STATE_DIR=        # machine-wide GitHub poll budget, back-off and ETag cache; default $XDG_STATE_HOME/firstmate/github; give homes on different GitHub accounts different directories
-FM_GH_POLL_HOURLY=1000  # core GitHub reads the contribution poll may spend per hour across every home sharing FM_GH_STATE_DIR; 304 answers are free
+FM_GH_POLL_HOURLY=1000  # core GitHub reads the contribution poll may spend per hour across every home sharing FM_GH_STATE_DIR; the PR health monitor's reads are charged to the same ledger without the cap ever refusing the monitor; 304 answers are free
 FM_GH_POLL_RESERVE=1000 # background GitHub polls pause while the last reported X-RateLimit-Remaining is below this, until the window resets
 FM_GH_BACKOFF=300       # seconds a rate-limit response with no Retry-After or reset backs every poll off
 FM_MAIL_CHECK_BUDGET=15   # seconds allowed for one standing mail poll; valid 5..25, cut to fit FM_CHECK_TIMEOUT

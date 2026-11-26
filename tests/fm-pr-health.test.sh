@@ -82,6 +82,9 @@ case "$1 $2" in
   'api repos/o/r') printf '{"permissions":{"push":false}}\n' ;;
   'api repos/o/r/pulls/'*)
     rest=${2#repos/o/r/pulls/}
+    case "$rest" in
+      [0-9]*) [ ! -f "$FORGE/rate-limit" ] || { printf 'gh: Please wait a few minutes before you try again. (HTTP 403)\n' >&2; exit 1; } ;;
+    esac
     if [ -f "$FORGE/interrupt-$rest" ]; then
       # Stop the whole pass mid-read, as a check timeout would. The case
       # records the pass's PID once it has started it.
@@ -235,6 +238,26 @@ test_backoff_on_either_resource_makes_no_pr_read() {
   done
   expect_one "$home" 'conflicts with its base' 'the conflict must wake once the back-offs end'
   pass 'a back-off on either resource a PR read needs makes none of its calls'
+}
+
+test_bare_rate_limit_answer_backs_off_the_fleet() {
+  local home
+  home=$(new_home rate-limit-answer)
+  task "$home" ship1 pr=https://github.com/o/r/pull/8
+  pr "$home" 8 "$HEAD_A" "$BASE_1" false false
+  arm "$home"
+  # GitHub's bare secondary rate-limit answer on a read that shows no headers.
+  : > "$home/forge/rate-limit"
+  : > "$home/forge/calls.log"
+  expect_silent "$home" 'a rate-limit answer must not wake'
+  [ -s "$home/gh-state/backoff-all" ] || fail 'a rate-limit answer set no fleet back-off'
+  [ "$(grep -c 'repos/o/r/pulls/8$' "$home/forge/calls.log")" = 1 ] || fail 'a rate-limit answer was retried at once'
+  : > "$home/forge/calls.log"
+  expect_silent "$home" 'a pass during the back-off must not wake'
+  [ ! -s "$home/forge/calls.log" ] || fail "a pass during the back-off still called GitHub: $(cat "$home/forge/calls.log")"
+  rm "$home/forge/rate-limit" "$home/gh-state/backoff-all"
+  expect_one "$home" 'conflicts with its base' 'the conflict must wake once the back-off ends'
+  pass 'a bare rate-limit answer backs the fleet off without a wake'
 }
 
 test_response_body_never_backs_off_the_fleet() {
@@ -1029,7 +1052,8 @@ for test_name in test_maintainer_author_and_approval_states_are_distinct \
   test_all_owned_pr_reads_start_in_one_wave test_checks_on_later_pages \
   test_unsupported_provider_has_no_github_reads test_final_contributions_are_not_enrolled_again \
   test_many_recorded_contributions_do_not_starve_a_new_branch_pr test_fleet_backoff_defers_reads_without_waking \
-  test_response_body_never_backs_off_the_fleet test_backoff_on_either_resource_makes_no_pr_read; do
+  test_response_body_never_backs_off_the_fleet test_backoff_on_either_resource_makes_no_pr_read \
+  test_bare_rate_limit_answer_backs_off_the_fleet; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures PR health regressions"

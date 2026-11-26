@@ -2031,8 +2031,10 @@ failures=0
 # budget_home <name>: an owned open PR 8 behind a fake gh that answers the
 # poll's conditional reads like GitHub: an ETag per body, 304 for a matching
 # If-None-Match, X-RateLimit headers from $FORGE/remaining, and rate-limit
-# faults from $FORGE/fault (429, secondary, primary) on the core read. The
-# pull's mergeability comes from $FORGE/mergeable (default true), and the ETag
+# faults from $FORGE/fault (429, secondary, retry, primary) on the core read
+# (retry is GitHub's bare secondary answer: a 403 with Retry-After whose
+# message names no rate limit). The pull's mergeability comes from
+# $FORGE/mergeable (default true), and the ETag
 # leaves it out: GitHub computes it in a background job, and an ETag that
 # stays put while that job settles a null must not pin the null. Issue
 # comments are listed like GitHub lists them, oldest first and 100 to a page,
@@ -2073,6 +2075,9 @@ case "$(cat "$FORGE/fault" 2>/dev/null || true):$ep" in
   secondary:repos/o/r/pulls/8)
     printf 'HTTP/2.0 403 Forbidden\nRetry-After: %s\r\n\r\n{"message":"You have exceeded a secondary rate limit."}\n' "$(cat "$FORGE/retry")"
     printf 'gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. (HTTP 403)\n' >&2; exit 1 ;;
+  retry:repos/o/r/pulls/8)
+    printf 'HTTP/2.0 403 Forbidden\nRetry-After: %s\r\n\r\n{"message":"Please wait a few minutes before you try again."}\n' "$(cat "$FORGE/retry")"
+    printf 'gh: Please wait a few minutes before you try again. (HTTP 403)\n' >&2; exit 1 ;;
   primary:repos/o/r/pulls/8)
     printf 'HTTP/2.0 403 Forbidden\nX-Ratelimit-Remaining: 0\r\nX-Ratelimit-Limit: 5000\r\nX-Ratelimit-Reset: %s\r\nX-Ratelimit-Resource: core\r\n\r\n{"message":"API rate limit exceeded for user ID 1."}\n' "$reset"
     printf 'gh: API rate limit exceeded for user ID 1. (HTTP 403)\n' >&2; exit 1 ;;
@@ -2119,7 +2124,7 @@ mark_calls() { wc -l < "$1/forge/calls" > "$1/mark"; }
 
 test_rate_limit_backs_off_instead_of_retrying() {
   local fault home out before scope
-  for fault in 429 secondary primary; do
+  for fault in 429 secondary retry primary; do
     home=$(budget_home "rate-limit-$fault")
     printf '%s\n' "$fault" > "$home/forge/fault"
     printf '30\n' > "$home/forge/retry"
@@ -2130,7 +2135,7 @@ test_rate_limit_backs_off_instead_of_retrying() {
     [ "$(jq -c .records[0] "$home/data/delivery/contributions.json")" = "$before" ] \
       || fail "a $fault rate limit changed the contribution record"
     [ ! -s "$home/state/.wake-queue" ] || fail "a $fault rate limit enqueued a wake"
-    case "$fault" in secondary) scope=all ;; *) scope=core ;; esac
+    case "$fault" in secondary|retry) scope=all ;; *) scope=core ;; esac
     [ -s "$home/gh-state/backoff-$scope" ] || fail "a $fault rate limit set no $scope back-off"
     rm "$home/forge/fault"
     mark_calls "$home"
@@ -2329,7 +2334,30 @@ test_cache_entries_not_rewritten_for_a_week_are_pruned() {
   pass 'admission prunes cache entries not rewritten for a week, at most hourly'
 }
 
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_review_bot_inline_wake test_review_bot_watching_is_opt_in test_review_bot_allowlist_is_configurable test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_http_500_once_retries_without_waking test_http_500_twice_records_the_failed_read test_http_404_is_not_retried test_real_gh_errors_drive_retry_and_summary test_next_url_does_not_inherit_a_forge_diagnostic test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_many_settled_records_keep_the_poll_inside_the_check_bound test_many_settled_records_beside_a_malformed_one_keep_the_poll_inside_the_check_bound test_record_without_trailing_newline_does_not_join_its_neighbour test_records_beyond_one_read_batch_are_all_read test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs test_unanswered_thread_is_raised_again_under_hold test_resolved_thread_is_answered test_reply_rules test_reply_age_is_configurable_and_validated test_closed_pull_request_drops_its_threads test_unanswered_reraise_is_off_unless_configured test_arm_plumbs_the_reply_age_into_the_check_shim test_many_reviews_stay_readable test_rate_limit_backs_off_instead_of_retrying test_fleet_budget_is_shared_and_304s_are_free test_low_remaining_pauses_polls_for_the_reserve test_conditional_reread_still_wakes_on_change test_quiet_item_is_read_rarely test_response_body_never_backs_off_the_fleet test_unsettled_mergeability_is_read_again_next_poll test_list_that_outgrows_a_full_page_is_read_in_full test_graphql_backoff_refuses_only_pull_reads test_cache_entries_not_rewritten_for_a_week_are_pruned; do
+test_retry_after_on_a_403_is_a_rate_limit_by_the_header_alone() {
+  local state=$TMP_ROOT/gh-retry-after-state rc
+  note() { # -> fm_gh_response_note's code
+    FM_GH_STATE_DIR="$state" bash -eu -c '. "$1"; fm_gh_response_note graphql "$2" "$3"' \
+      _ "$ROOT/bin/fm-gh-budget-lib.sh" "$TMP_ROOT/retry-after.raw" "$TMP_ROOT/retry-after.err"
+  }
+  # GitHub documents a secondary rate limit by its Retry-After header and has
+  # worded its message more than one way, so the header alone must decide.
+  printf 'HTTP/2.0 403 Forbidden\r\nRetry-After: 60\r\n\r\n{"message":"slow down"}\n' > "$TMP_ROOT/retry-after.raw"
+  printf 'gh: slow down (HTTP 403)\n' > "$TMP_ROOT/retry-after.err"
+  rc=0; note || rc=$?
+  [ "$rc" = 2 ] || fail "a 403 that carries Retry-After was noted as code $rc"
+  [ -s "$state/backoff-all" ] || fail 'a 403 that carries Retry-After set no fleet back-off'
+  printf 'HTTP/2.0 403 Forbidden\r\nX-Ratelimit-Remaining: 4321\r\nX-Ratelimit-Limit: 5000\r\nX-Ratelimit-Reset: %s\r\nX-Ratelimit-Resource: core\r\n\r\n{"message":"Resource not accessible by integration"}\n' \
+    "$(( $(date +%s) + 3600 ))" > "$TMP_ROOT/retry-after.raw"
+  printf 'gh: Resource not accessible by integration (HTTP 403)\n' > "$TMP_ROOT/retry-after.err"
+  rm -f "$state/backoff-all"
+  rc=0; note || rc=$?
+  [ "$rc" = 0 ] || fail "a 403 without Retry-After was noted as code $rc"
+  [ ! -e "$state/backoff-all" ] || fail 'a 403 without Retry-After set a fleet back-off'
+  pass 'a 403 that carries Retry-After is a fleet rate limit by the header alone, and one without it is not'
+}
+
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_review_bot_inline_wake test_review_bot_watching_is_opt_in test_review_bot_allowlist_is_configurable test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_http_500_once_retries_without_waking test_http_500_twice_records_the_failed_read test_http_404_is_not_retried test_real_gh_errors_drive_retry_and_summary test_next_url_does_not_inherit_a_forge_diagnostic test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_many_settled_records_keep_the_poll_inside_the_check_bound test_many_settled_records_beside_a_malformed_one_keep_the_poll_inside_the_check_bound test_record_without_trailing_newline_does_not_join_its_neighbour test_records_beyond_one_read_batch_are_all_read test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs test_unanswered_thread_is_raised_again_under_hold test_resolved_thread_is_answered test_reply_rules test_reply_age_is_configurable_and_validated test_closed_pull_request_drops_its_threads test_unanswered_reraise_is_off_unless_configured test_arm_plumbs_the_reply_age_into_the_check_shim test_many_reviews_stay_readable test_rate_limit_backs_off_instead_of_retrying test_fleet_budget_is_shared_and_304s_are_free test_low_remaining_pauses_polls_for_the_reserve test_conditional_reread_still_wakes_on_change test_quiet_item_is_read_rarely test_response_body_never_backs_off_the_fleet test_unsettled_mergeability_is_read_again_next_poll test_list_that_outgrows_a_full_page_is_read_in_full test_graphql_backoff_refuses_only_pull_reads test_cache_entries_not_rewritten_for_a_week_are_pruned test_retry_after_on_a_403_is_a_rate_limit_by_the_header_alone; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"
